@@ -25,8 +25,28 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
+        className={`${geistSans.variable} ${geistMono.variable} antialiased bg-slate-50 text-slate-900`}
       >
+        {/* GLOBAL NAVBAR */}
+        <nav className="flex items-center justify-between px-8 py-5 border-b border-slate-200 bg-white">
+          <a href="/" className="text-xl font-semibold tracking-tight text-blue-700">
+            VegMap
+          </a>
+
+          <div className="flex gap-6 text-sm text-slate-600">
+            <a href="/tool" className="hover:text-blue-700 transition">
+              Tool
+            </a>
+            <span className="hover:text-blue-700 transition cursor-pointer">
+              Documentation
+            </span>
+            <span className="hover:text-blue-700 transition cursor-pointer">
+              Contact
+            </span>
+          </div>
+        </nav>
+
+        {/* PAGE CONTENT */}
         {children}
       </body>
     </html>
