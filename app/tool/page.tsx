@@ -7,30 +7,41 @@ export default function ToolPage() {
   const [running, setRunning] = useState(false);
   const [progress, setProgress] = useState(0);
   const [status, setStatus] = useState("Waiting for input…");
-  const runModel = () => {
+
+  const runModel = async () => {
     if (running) return;
 
     setRunning(true);
-    setProgress(0);
-    setStatus("Initializing model...");
+    setProgress(10);
+    setStatus("Connecting to VegMap API...");
 
-    let value = 0;
+    try {
+      setProgress(30);
+      setStatus("Preparing request...");
 
-    const interval = setInterval(() => {
-      value += 10;
-      setProgress(value);
+      const formData = new FormData();
 
-      if (value === 30) setStatus("Uploading imagery...");
-      if (value === 60) setStatus("Running GPU inference...");
-      if (value === 90) setStatus("Generating output raster...");
+      const response = await fetch("http://127.0.0.1:8000/predict", {
+        method: "POST",
+        body: formData,
+      });
 
-      if (value >= 100) {
-        clearInterval(interval);
-        setStatus("Model complete ✔ Output ready.");
-        setRunning(false);
-      }
-    }, 400);
+      setProgress(70);
+      setStatus("Processing response...");
+
+      const data = await response.json();
+
+      setProgress(100);
+      setStatus(`Model complete ✔ Output size: ${data.shape}`);
+    } catch (error) {
+      console.error(error);
+      setStatus("Error contacting backend API");
+      setProgress(0);
+    }
+
+    setRunning(false);
   };
+
   return (
     <main className="relative h-[calc(100vh-72px)] flex overflow-hidden bg-slate-900">
 
