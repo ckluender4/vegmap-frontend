@@ -2,18 +2,37 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useState, useRef, useEffect } from "react";
 
 export default function Navbar() {
+
   const pathname = usePathname();
   const isToolPage = pathname === "/tool";
 
+  const [open, setOpen] = useState(false);
+
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+        setOpen(false);
+      }
+    }
+
+    document.addEventListener("mousedown", handleClickOutside);
+
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, []);
+
   return (
     <nav
-      className={`flex items-center justify-between px-8 py-5 border-b ${
-        isToolPage
-          ? "border-slate-700 bg-slate-900 text-slate-100"
-          : "border-slate-200 bg-white text-slate-900"
-      }`}
+      className={`flex items-center justify-between px-8 py-5 border-b ${isToolPage
+        ? "border-slate-700 bg-slate-900 text-slate-100"
+        : "border-slate-200 bg-white text-slate-900"
+        }`}
     >
       <Link
         href="/"
@@ -23,13 +42,152 @@ export default function Navbar() {
       </Link>
 
       <div
-        className={`flex gap-6 text-sm ${
-          isToolPage ? "text-slate-300" : "text-slate-600"
-        }`}
+        className={`flex gap-6 text-sm items-center ${isToolPage ? "text-slate-300" : "text-slate-600"
+          }`}
       >
-        <Link href="/tool" className="hover:text-blue-600 transition">
-          Tool
-        </Link>
+
+        {/* TOOLS DROPDOWN */}
+
+        <div
+          ref={menuRef}
+          className="relative"
+        >
+
+          <button
+            onClick={() => setOpen(!open)}
+            className="hover:text-blue-600 transition flex items-center gap-1"
+          >
+
+            Tools
+
+            <span
+              className={`text-xs transition-transform ${open ? "rotate-180" : ""
+                }`}
+            >
+              ▼
+            </span>
+
+          </button>
+
+          {open && (
+
+            <div className="absolute top-10 left-1/2 -translate-x-1/2 w-80 rounded-xl border border-slate-200 bg-white shadow-xl py-2 z-50">
+
+              {/* ACTIVE TOOLS */}
+
+              <Link
+                href="/tool?mode=vegetation"
+                onClick={() => setOpen(false)}
+                className="block px-4 py-3 hover:bg-slate-50 transition"
+              >
+                <div className="flex gap-3">
+
+                  <div className="text-lg">🌿</div>
+
+                  <div>
+                    <div className="text-sm font-medium text-slate-900">
+                      Vegetation Mapping
+                    </div>
+
+                    <div className="text-xs text-slate-500">
+                      Deep learning vegetation classification from imagery
+                    </div>
+                  </div>
+
+                </div>
+              </Link>
+
+
+              <Link
+                href="/tool?mode=sampling"
+                onClick={() => setOpen(false)}
+                className="block px-4 py-3 hover:bg-slate-50 transition"
+              >
+                <div className="flex gap-3">
+
+                  <div className="text-lg">📍</div>
+
+                  <div>
+                    <div className="text-sm font-medium text-slate-900">
+                      Sampling Design
+                    </div>
+
+                    <div className="text-xs text-slate-500">
+                      Environmentally representative monitoring locations
+                    </div>
+                  </div>
+
+                </div>
+              </Link>
+
+
+              {/* DIVIDER */}
+
+              <div className="border-t border-slate-200 my-2"></div>
+
+
+              {/* FUTURE TOOLS */}
+
+              <div className="px-4 py-2 text-xs text-slate-400 uppercase tracking-wide">
+                Coming Soon
+              </div>
+
+
+              <div className="px-4 py-3 flex gap-3 opacity-60">
+
+                <div className="text-lg">🔥</div>
+
+                <div>
+                  <div className="text-sm font-medium text-slate-700">
+                    Fire Spread Modeling
+                  </div>
+
+                  <div className="text-xs text-slate-500">
+                    Burn probability and fire behavior simulation
+                  </div>
+                </div>
+
+              </div>
+
+
+              <div className="px-4 py-3 flex gap-3 opacity-60">
+
+                <div className="text-lg">🌎</div>
+
+                <div>
+                  <div className="text-sm font-medium text-slate-700">
+                    Carbon Mapping
+                  </div>
+
+                  <div className="text-xs text-slate-500">
+                    Spatial prediction of soil carbon stocks
+                  </div>
+                </div>
+
+              </div>
+
+
+              <div className="px-4 py-3 flex gap-3 opacity-60">
+
+                <div className="text-lg">🛰</div>
+
+                <div>
+                  <div className="text-sm font-medium text-slate-700">
+                    UAV Analysis
+                  </div>
+
+                  <div className="text-xs text-slate-500">
+                    Drone imagery classification and mapping
+                  </div>
+                </div>
+
+              </div>
+
+            </div>
+
+          )}
+
+        </div>
 
         <Link href="/pricing" className="hover:text-blue-600 transition">
           Pricing
@@ -38,6 +196,7 @@ export default function Navbar() {
         <Link href="/contact" className="hover:text-blue-600 transition">
           Contact
         </Link>
+
       </div>
     </nav>
   );

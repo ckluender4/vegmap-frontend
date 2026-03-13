@@ -1,0 +1,38 @@
+# Node / Next.js
+node_modules
+.next
+out
+dist
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# virtual environments
+venv/
+.env/
+.env
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# GIS data
+*.tif
+*.tiff
+*.shp
+*.dbf
+*.shx
+*.gpkg
+*.zip
+
+# R temporary plots
+backend/Rplots.pdf
+
+# uploaded user files
+backend/uploads/

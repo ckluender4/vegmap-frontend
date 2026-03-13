@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { useEffect, useRef } from "react";
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
@@ -12,7 +13,11 @@ export default function ToolPage() {
   const [status, setStatus] = useState("Waiting for input…");
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
-  const [selectedTool, setSelectedTool] = useState("vegetation");
+  const searchParams = useSearchParams();
+
+  const mode = searchParams.get("mode") ?? "vegetation";
+
+  const [selectedTool, setSelectedTool] = useState(mode);
   const [aoiFile, setAoiFile] = useState<File | null>(null);
   const mapContainer = useRef<HTMLDivElement | null>(null);
   const map = useRef<any>(null);

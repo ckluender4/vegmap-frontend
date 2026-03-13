@@ -1,164 +1,223 @@
 import Link from "next/link";
+import WorkspaceMapPreview from "../components/WorkspaceMapPreview";
 
 export default function Home() {
   return (
-    <main className="min-h-screen bg-slate-50 text-slate-900">
+    <main className="relative min-h-screen bg-slate-50 text-slate-900 overflow-hidden">
+
+      {/* HERO GRADIENT BACKGROUND */}
+      <div className="absolute inset-0 pointer-events-none">
+
+        {/* blue glow */}
+        <div className="absolute -top-40 left-1/3 w-[600px] h-[600px] bg-blue-400/20 blur-3xl rounded-full animate-pulse"></div>
+
+        {/* secondary glow */}
+        <div className="absolute top-60 -left-20 w-[500px] h-[500px] bg-indigo-400/10 blur-3xl rounded-full"></div>
+
+      </div>
+
 
       {/* HERO */}
-      <section className="px-8 py-24 max-w-5xl mx-auto">
+      <section className="relative px-8 py-28 max-w-5xl mx-auto">
+
         <h1 className="text-5xl font-bold tracking-tight leading-tight mb-6">
-          AI Vegetation Mapping
-          <span className="text-blue-700"> for Landscapes</span>
+          Spatial Analysis Tools
+          <span className="text-blue-600"> for Landscape Science</span>
         </h1>
 
         <p className="text-lg text-slate-600 max-w-3xl mb-8 leading-relaxed">
-          A deep learning platform for generating high-resolution vegetation
-          maps from imagery. Built for scientific workflows and modern land
-          management applications.
+          VegMap provides interactive tools for vegetation mapping,
+          environmental sampling design, and geospatial analysis —
+          built for scientists, researchers, and land managers.
         </p>
 
         <Link href="/tool">
-          <button className="bg-blue-700 text-white px-6 py-3 rounded-lg hover:bg-blue-800 transition shadow-sm">
-            Open Mapping Tool
+          <button className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition shadow-md hover:shadow-blue-400/20">
+            Open VegMap Workspace
           </button>
         </Link>
-      </section>
-
-      {/* FEATURE GRID */}
-      <section className="px-8 pb-20 max-w-6xl mx-auto grid grid-cols-1 md:grid-cols-3 gap-6">
-
-        <div className="border border-blue-100 rounded-xl p-6 bg-white shadow-sm">
-          <h3 className="font-semibold text-lg mb-2 text-blue-700">
-            Scientific Accuracy
-          </h3>
-          <p className="text-slate-600 text-sm leading-relaxed">
-            Designed for ecological workflows and reproducible spatial analysis.
-          </p>
-        </div>
-
-        <div className="border border-blue-100 rounded-xl p-6 bg-white shadow-sm">
-          <h3 className="font-semibold text-lg mb-2 text-blue-700">
-            GPU Accelerated
-          </h3>
-          <p className="text-slate-600 text-sm leading-relaxed">
-            Deep learning inference running on GPU infrastructure for fast processing.
-          </p>
-        </div>
-
-        <div className="border border-blue-100 rounded-xl p-6 bg-white shadow-sm">
-          <h3 className="font-semibold text-lg mb-2 text-blue-700">
-            GeoTIFF Outputs
-          </h3>
-          <p className="text-slate-600 text-sm leading-relaxed">
-            Outputs ready for ArcGIS, QGIS, and modeling workflows.
-          </p>
-        </div>
 
       </section>
 
-      {/* PRODUCT PREVIEW */}
-      <section className="px-8 pb-28 max-w-6xl mx-auto">
 
-        <h2 className="text-4xl font-bold mb-4 text-slate-900">
-          Experience the Future of Vegetation Mapping
-        </h2>
+      {/* TOOLS */}
+      <section className="px-8 pb-24 max-w-6xl mx-auto">
 
-        <p className="text-lg text-slate-600 max-w-3xl mb-10">
-          VegMap brings deep learning inference into a modern scientific workspace —
-          enabling researchers and land managers to produce analysis-ready vegetation maps in minutes.
-        </p>
-
-        <div className="relative rounded-2xl overflow-hidden shadow-2xl border border-slate-200">
-
-          {/* subtle glow */}
-          <div className="absolute inset-0 bg-gradient-to-br from-blue-100/40 via-transparent to-transparent pointer-events-none"></div>
-
-          {/* fake app window */}
-          <div className="bg-slate-900 text-slate-100">
-
-            {/* top bar */}
-            <div className="flex items-center gap-2 px-5 py-3 border-b border-slate-800 bg-slate-950">
-              <div className="w-3 h-3 bg-red-400 rounded-full"></div>
-              <div className="w-3 h-3 bg-yellow-400 rounded-full"></div>
-              <div className="w-3 h-3 bg-green-400 rounded-full"></div>
-              <span className="ml-3 text-xs text-slate-400">
-                VegMap • Mapping Workspace
-              </span>
-            </div>
-
-            {/* app body */}
-            <div className="grid grid-cols-1 md:grid-cols-4 min-h-[420px]">
-
-              {/* sidebar preview */}
-              <div className="border-r border-slate-800 bg-slate-900 p-5 space-y-3">
-                <div className="h-8 bg-slate-700 rounded"></div>
-                <div className="h-6 bg-slate-700 rounded"></div>
-                <div className="h-6 bg-slate-700 rounded"></div>
-                <div className="h-10 bg-blue-600 rounded mt-4"></div>
-              </div>
-
-              {/* workspace preview */}
-              <div className="md:col-span-3 bg-slate-950 flex items-center justify-center text-slate-400 text-sm">
-                High-resolution map workspace preview
-              </div>
-
-            </div>
-          </div>
-
-        </div>
-
-      </section>
-
-      {/* HOW IT WORKS */}
-      <section className="px-8 pb-28 max-w-6xl mx-auto">
-
-        <h2 className="text-3xl font-bold mb-3 text-slate-900">
-          How VegMap Works
+        <h2 className="text-3xl font-bold mb-4">
+          Analysis Tools
         </h2>
 
         <p className="text-slate-600 max-w-3xl mb-10">
-          Designed for scientists and land managers — from imagery upload to
-          analysis-ready outputs in a simple, reproducible workflow.
+          VegMap integrates multiple spatial analysis tools within a unified
+          workspace designed for landscape research and environmental analysis.
         </p>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
 
-          {/* STEP 1 */}
+          {/* TOOL CARD */}
+          <div className="border border-slate-200 rounded-xl p-6 bg-white shadow-sm hover:shadow-md hover:-translate-y-1 transition">
+
+            <h3 className="font-semibold text-lg mb-2 text-blue-700">
+              Vegetation Mapping
+            </h3>
+
+            <p className="text-slate-600 text-sm leading-relaxed">
+              Generate high-resolution vegetation maps using deep learning
+              models applied to aerial imagery and satellite datasets.
+            </p>
+
+          </div>
+
+          {/* TOOL CARD */}
+          <div className="border border-slate-200 rounded-xl p-6 bg-white shadow-sm hover:shadow-md hover:-translate-y-1 transition">
+
+            <h3 className="font-semibold text-lg mb-2 text-blue-700">
+              Sampling Design
+            </h3>
+
+            <p className="text-slate-600 text-sm leading-relaxed">
+              Identify environmentally representative monitoring locations
+              using PCA-based environmental coverage algorithms.
+            </p>
+
+          </div>
+
+          {/* TOOL CARD */}
+          <div className="border border-slate-200 rounded-xl p-6 bg-white shadow-sm hover:shadow-md hover:-translate-y-1 transition">
+
+            <h3 className="font-semibold text-lg mb-2 text-blue-700">
+              Spatial Outputs
+            </h3>
+
+            <p className="text-slate-600 text-sm leading-relaxed">
+              Export GeoTIFF and GeoJSON results ready for GIS workflows,
+              modeling pipelines, and scientific analysis.
+            </p>
+
+          </div>
+
+        </div>
+
+      </section>
+
+
+      {/* WORKSPACE PREVIEW */}
+      <section className="px-8 pb-28 max-w-6xl mx-auto">
+
+        <h2 className="text-4xl font-bold mb-4">
+          A Modern Geospatial Workspace
+        </h2>
+
+        <p className="text-lg text-slate-600 max-w-3xl mb-10">
+          VegMap combines machine learning, spatial analysis, and interactive
+          visualization into a unified platform for landscape science.
+        </p>
+
+
+        <div className="relative rounded-2xl overflow-hidden shadow-2xl border border-slate-200">
+
+          {/* subtle gradient overlay */}
+          <div className="absolute inset-0 bg-gradient-to-br from-blue-100/40 via-transparent to-transparent pointer-events-none"></div>
+
+
+          {/* fake app window */}
+          <div className="bg-slate-900 text-slate-100">
+
+            {/* window header */}
+            <div className="flex items-center gap-2 px-5 py-3 border-b border-slate-800 bg-slate-950">
+
+              <div className="w-3 h-3 bg-red-400 rounded-full"></div>
+              <div className="w-3 h-3 bg-yellow-400 rounded-full"></div>
+              <div className="w-3 h-3 bg-green-400 rounded-full"></div>
+
+              <span className="ml-3 text-xs text-slate-400">
+                VegMap • Spatial Workspace
+              </span>
+
+            </div>
+
+
+            {/* workspace preview */}
+            <div className="relative h-[500px]">
+
+              <WorkspaceMapPreview />
+
+              {/* subtle gradient overlay */}
+              <div className="absolute inset-0 bg-gradient-to-t from-black/20 via-transparent to-transparent pointer-events-none"></div>
+
+              {/* preview label */}
+              <div className="absolute top-4 left-4 text-xs text-white/70 bg-black/40 px-3 py-1 rounded backdrop-blur-sm">
+                VegMap Interactive Viewer
+              </div>
+
+            </div>
+
+          </div>
+
+        </div>
+
+
+
+      </section>
+
+
+      {/* HOW IT WORKS */}
+      <section className="px-8 pb-28 max-w-6xl mx-auto">
+
+        <h2 className="text-3xl font-bold mb-3">
+          How VegMap Works
+        </h2>
+
+        <p className="text-slate-600 max-w-3xl mb-10">
+          VegMap simplifies complex spatial workflows by combining data
+          upload, analysis tools, and visualization into a single interface.
+        </p>
+
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+
           <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm">
             <div className="text-blue-700 font-semibold mb-2 text-sm">
               STEP 1
             </div>
-            <h3 className="text-lg font-semibold mb-2 text-slate-900">
-              Upload Imagery
+
+            <h3 className="text-lg font-semibold mb-2">
+              Upload Spatial Data
             </h3>
+
             <p className="text-slate-600 text-sm leading-relaxed">
-              Upload RGB imagery or GeoTIFF datasets directly into the workspace.
+              Upload imagery or AOI boundaries to begin analysis.
             </p>
           </div>
 
-          {/* STEP 2 */}
+
           <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm">
             <div className="text-blue-700 font-semibold mb-2 text-sm">
               STEP 2
             </div>
-            <h3 className="text-lg font-semibold mb-2 text-slate-900">
-              Run AI Model
+
+            <h3 className="text-lg font-semibold mb-2">
+              Run Analysis Tools
             </h3>
+
             <p className="text-slate-600 text-sm leading-relaxed">
-              Configure model settings and launch GPU-accelerated inference.
+              Launch vegetation models or sampling algorithms directly
+              inside the VegMap workspace.
             </p>
           </div>
 
-          {/* STEP 3 */}
+
           <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm">
             <div className="text-blue-700 font-semibold mb-2 text-sm">
               STEP 3
             </div>
-            <h3 className="text-lg font-semibold mb-2 text-slate-900">
-              Download Outputs
+
+            <h3 className="text-lg font-semibold mb-2">
+              Export Results
             </h3>
+
             <p className="text-slate-600 text-sm leading-relaxed">
-              Export analysis-ready GeoTIFF outputs for GIS, modeling, and reporting.
+              Download GeoTIFF and GeoJSON outputs ready for GIS and modeling.
             </p>
           </div>
 
@@ -167,31 +226,31 @@ export default function Home() {
       </section>
 
 
-      {/* FINAL CTA */}
-      <section className="px-8 pb-28 max-w-5xl mx-auto text-center">
+      {/* CTA */}
+      <section className="px-8 pb-32 max-w-5xl mx-auto text-center">
 
         <div className="bg-slate-900 text-slate-100 rounded-2xl p-12 shadow-2xl">
 
           <h2 className="text-3xl font-bold mb-4">
-            Ready to Map Smarter?
+            Ready to Explore Your Landscape Data?
           </h2>
 
           <p className="text-slate-300 max-w-2xl mx-auto mb-8">
-            VegMap brings modern deep learning workflows into a clean scientific interface —
-            helping researchers and land managers generate reproducible vegetation maps faster.
+            Launch the VegMap workspace to start mapping vegetation,
+            designing monitoring networks, and running spatial analysis tools.
           </p>
 
-          <a
+          <Link
             href="/tool"
             className="inline-block bg-blue-600 hover:bg-blue-700 transition px-8 py-3 rounded-lg font-medium text-white shadow-md"
           >
-            Open Mapping Tool
-          </a>
+            Open VegMap Workspace
+          </Link>
 
         </div>
 
       </section>
 
-    </main>
+    </main >
   );
 }
