@@ -1,4 +1,4 @@
-from fastapi import FastAPI, UploadFile, File
+from fastapi import FastAPI, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 import numpy as np
 from PIL import Image
@@ -73,16 +73,45 @@ async def upload_aoi(file: UploadFile = File(...)):
 import subprocess
 import json
 
+from fastapi import Form
+
 @app.post("/run-sampling")
-async def run_sampling():
+async def run_sampling(
+    max_samples: int = Form(...),
+    min_spacing: int = Form(...)
+):
 
     subprocess.run([
         r"C:/Program Files/R/R-4.4.1/bin/Rscript.exe",
         "sampling_design.R",
-        "uploads/uploaded_aoi.shp"
+        "uploads/uploaded_aoi.shp",
+        str(max_samples),
+        str(min_spacing)
     ], check=True)
 
-    with open("sampling_points.geojson") as f:
-        points = json.load(f)
+    with open("sampling_output.json") as f:
+        output = json.load(f)
 
-    return points
+    return output
+
+
+
+from fastapi.responses import FileResponse
+import shutil
+
+@app.get("/download-sampling")
+async def download_sampling():
+
+    zip_path = "sampling_points.zip"
+
+    shutil.make_archive(
+        "sampling_points",
+        "zip",
+        "sampling_export"
+    )
+
+    return FileResponse(
+        zip_path,
+        media_type="application/zip",
+        filename="sampling_points.zip"
+    )

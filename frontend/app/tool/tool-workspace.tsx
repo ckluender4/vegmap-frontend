@@ -5,6 +5,17 @@ import { useSearchParams } from "next/navigation";
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 
+import {
+    LineChart,
+    Line,
+    XAxis,
+    YAxis,
+    Tooltip,
+    ReferenceLine,
+    CartesianGrid,
+    ResponsiveContainer
+} from "recharts";
+
 
 export default function ToolWorkspace() {
 
@@ -19,6 +30,11 @@ export default function ToolWorkspace() {
 
     const [selectedTool, setSelectedTool] = useState(mode);
     const [aoiFile, setAoiFile] = useState<File | null>(null);
+    const [maxSamples, setMaxSamples] = useState(20);
+    const [minSpacing, setMinSpacing] = useState(100);
+    const [recommendedSamples, setRecommendedSamples] = useState<number | null>(null);
+    const [coverageCurve, setCoverageCurve] = useState<{ n: number; p_covered: number }[]>([]);
+    const [samplingComplete, setSamplingComplete] = useState(false);
     const mapContainer = useRef<HTMLDivElement | null>(null);
     const map = useRef<any>(null);
 
@@ -63,13 +79,19 @@ export default function ToolWorkspace() {
         try {
 
             const formData = new FormData();
+            formData.append("max_samples", String(maxSamples));
+            formData.append("min_spacing", String(minSpacing));
 
             const response = await fetch("http://127.0.0.1:8000/run-sampling", {
                 method: "POST",
                 body: formData,
             });
 
-            const geojson = await response.json();
+            const result = await response.json();
+
+            const geojson = result.points;
+            setRecommendedSamples(result.summary?.recommended_n ?? null);
+            setCoverageCurve(result.coverage_curve ?? []);
 
             if (!map.current) return;
 
@@ -97,6 +119,7 @@ export default function ToolWorkspace() {
 
             setProgress(100);
             setStatus("Sampling design complete");
+            setSamplingComplete(true);
 
         } catch (error) {
             console.error(error);
@@ -272,10 +295,11 @@ export default function ToolWorkspace() {
                         <div className="flex flex-col gap-3 text-xs text-slate-300">
 
                             <label className="flex flex-col">
-                                Number of Samples
+                                Max number of sampling locations
                                 <input
                                     type="number"
-                                    defaultValue={20}
+                                    value={maxSamples}
+                                    onChange={(e) => setMaxSamples(Number(e.target.value))}
                                     className="mt-1 bg-slate-900 border border-slate-700 rounded px-2 py-1"
                                 />
                             </label>
@@ -284,12 +308,25 @@ export default function ToolWorkspace() {
                                 Minimum Spacing (m)
                                 <input
                                     type="number"
-                                    defaultValue={100}
+                                    value={minSpacing}
+                                    onChange={(e) => setMinSpacing(Number(e.target.value))}
                                     className="mt-1 bg-slate-900 border border-slate-700 rounded px-2 py-1"
                                 />
                             </label>
 
                         </div>
+                        {recommendedSamples !== null && (
+                            <div className="mt-3 rounded-md border border-blue-700/40 bg-slate-900 px-3 py-2">
+                                <div className="text-xs text-slate-400">Recommended sample size</div>
+                                <div className="text-lg font-semibold text-blue-300">
+                                    {recommendedSamples}
+                                </div>
+                                <div className="text-[11px] text-slate-400 mt-1">
+                                    Environmental coverage ≥ 95%
+                                </div>
+                            </div>
+                        )}
+
                     </div>
                 )}
                 {/* RUN BUTTON */}
@@ -307,6 +344,15 @@ export default function ToolWorkspace() {
                             ? "Run Vegetation Model"
                             : "Run Sampling Design"}
                 </button>
+
+                {samplingComplete && (
+                    <button
+                        onClick={() => window.open("http://127.0.0.1:8000/download-sampling")}
+                        className="w-full py-3 rounded-lg font-medium transition shadow-sm mb-4 bg-green-700 hover:bg-green-800 text-white"
+                    >
+                        Export Sampling Points (.shp)
+                    </button>
+                )}
 
                 {/* STATUS PANEL */}
                 <div className="border border-slate-700 rounded-lg p-4 bg-slate-800">
@@ -345,51 +391,68 @@ export default function ToolWorkspace() {
                 {/* MAP CANVAS */}
                 <div className="relative flex-1 min-h-[500px] rounded-xl border border-slate-700 overflow-hidden shadow-[0_0_60px_rgba(59,130,246,0.15)]">
 
-                    {/* MAPLIBRE MAP */}
-                    <div
-                        ref={mapContainer}
-                        className="w-full h-full"
-                    />
+                    {/* MAP */}
+                    <div ref={mapContainer} className="w-full h-full" />
 
-                    {/* BASE MAP GRADIENT */}
-                    {/* <div className="absolute inset-0 z-10 bg-gradient-to-br from-slate-900/10 via-transparent to-black/20 pointer-events-none"></div> */}
+                    {/* COVERAGE CURVE PANEL */}
+                    {selectedTool === "sampling" && samplingComplete && (
 
-                    {/* RADIAL LIGHT */}
-                    {/* <div className="absolute inset-0 z-10 bg-[radial-gradient(circle_at_30%_30%,rgba(59,130,246,0.15),transparent_60%)] pointer-events-none"></div> */}
+                        <div className="absolute bottom-4 left-4 w-72 bg-slate-900/95 border border-slate-700 rounded-lg p-3 shadow-xl">
 
-                    {/* GRID OVERLAY - MINOR */}
-                    {/* <div
-            className="absolute inset-0 z-20 opacity-20 pointer-events-none"
-            style={{
-              backgroundImage:
-                "linear-gradient(rgba(255,255,255,0.04) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.04) 1px, transparent 1px)",
-              backgroundSize: "40px 40px",
-            }}
-          /> */}
+                            <h3 className="text-xs font-semibold text-blue-300 mb-2">
+                                Environmental Coverage
+                            </h3>
 
-                    {/* GRID OVERLAY - MAJOR */}
-                    {/* <div
-            className="absolute inset-0 z-20 opacity-25 pointer-events-none"
-            style={{
-              backgroundImage:
-                "linear-gradient(rgba(59,130,246,0.12) 1px, transparent 1px), linear-gradient(90deg, rgba(59,130,246,0.12) 1px, transparent 1px)",
-              backgroundSize: "200px 200px",
-            }}
-          /> */}
+                            <ResponsiveContainer width="100%" height={160}>
+                                <LineChart data={coverageCurve}>
+                                    <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
 
-                    {/* MAP LABELS */}
-                    {/* <div className="absolute top-4 left-4 text-xs text-slate-400 tracking-wide pointer-events-none">
-            Workspace Projection: EPSG:5070
-          </div>
+                                    <XAxis
+                                        dataKey="n"
+                                        stroke="#94a3b8"
+                                        tick={{ fontSize: 10 }}
+                                    />
 
-          <div className="absolute bottom-4 right-4 text-xs text-slate-500 pointer-events-none">
-            VegMap Viewer
-          </div> */}
+                                    <YAxis
+                                        stroke="#94a3b8"
+                                        domain={[0, 1]}
+                                        tickFormatter={(v) => `${Math.round(v * 100)}%`}
+                                        tick={{ fontSize: 10 }}
+                                    />
+
+                                    <Tooltip
+                                        formatter={(value) =>
+                                            typeof value === "number"
+                                                ? `${(value * 100).toFixed(1)}%`
+                                                : value
+                                        }
+                                        contentStyle={{
+                                            background: "#0f172a",
+                                            border: "1px solid #334155"
+                                        }}
+                                    />
+
+                                    <ReferenceLine y={0.95} stroke="#22c55e" strokeDasharray="3 3"/>
+
+                                    <Line
+                                        type="monotone"
+                                        dataKey="p_covered"
+                                        stroke="#3b82f6"
+                                        strokeWidth={2}
+                                        dot={false}
+                                    />
+                                </LineChart>
+                            </ResponsiveContainer>
+
+                        </div>
+
+                    )}
 
                 </div>
 
+
             </section>
 
-        </main>
+        </main >
     );
 }

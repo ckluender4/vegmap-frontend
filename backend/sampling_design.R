@@ -5,18 +5,20 @@ rm(list = ls())
 # -----------------------------
 args <- commandArgs(trailingOnly = TRUE)
 
-if (length(args) == 0) {
-  stop("No AOI provided")
+if (length(args) < 3) {
+  stop("AOI path, max_samples, and min_spacing required")
 }
 
 aoi_path <- args[1]
+max_samples <- as.numeric(args[2])
+min_spacing <- as.numeric(args[3])
 
 pred_stack_path <- "S:/Shared Storage/FIREss/GIS DATA REPOSITORY/NEW CARBON/STACKS/WEST_FullStack_5070_30m.tif"
 mask_polys_path <- "S:/Shared Storage/FIREss/GIS DATA REPOSITORY/NPS/CIRO/CIRO_TreeMask.shp"
 
 grid_size <- 60 # cant do 30 bc then no SD
-min_spacing <- 30   # meters
-max_eval <- 700
+#min_spacing <- 30   # meters
+max_eval <- 1000
 
 set.seed(42)
 
@@ -27,6 +29,7 @@ library(terra)
 library(sf)
 library(dplyr)
 library(RANN)
+library(jsonlite)
 
 terraOptions(
   memfrac = 0.8,
@@ -387,12 +390,15 @@ cov_results_final <- tibble(
 
 if (!any(cov_results_final$p_covered >= 0.95, na.rm = TRUE)) {
   warning("95% coverage was not achieved; using maximum available sample size.")
-  n_final <- length(res_curve$selected)
+  recommended_n <- length(res_curve$selected)
 } else {
-  n_final <- min(cov_results_final$n[cov_results_final$p_covered >= 0.95], na.rm = TRUE)
+  recommended_n <- min(cov_results_final$n[cov_results_final$p_covered >= 0.95], na.rm = TRUE)
 }
 
-cat("Selected sampling size:", n_final, "\n")
+n_final <- min(recommended_n, max_samples)
+
+cat("Recommended sampling size:", recommended_n, "\n")
+cat("Selected sampling size after user cap:", n_final, "\n")
 
 sel_idx <- res_curve$selected[1:n_final]
 cand_cells <- grid_ok[sel_idx, ]
@@ -411,4 +417,35 @@ st_write(
   cand_pts,
   "sampling_points.geojson",
   delete_dsn = TRUE
+)
+
+points_geojson <- jsonlite::fromJSON("sampling_points.geojson", simplifyVector = FALSE)
+
+coverage_curve <- cov_results_final %>%
+  select(n, p_covered)
+
+output <- list(
+  points = points_geojson,
+  summary = list(
+    recommended_n = recommended_n,
+    selected_n = n_final,
+    max_samples = max_samples,
+    min_spacing_m = min_spacing
+  ),
+  coverage_curve = coverage_curve
+)
+
+write_json(output, "sampling_output.json", auto_unbox = TRUE, pretty = TRUE)
+
+# -----------------------------
+# EXPORT SHAPEFILE
+# -----------------------------
+
+dir.create("sampling_export", showWarnings = FALSE)
+
+st_write(
+  cand_pts,
+  "sampling_export/sampling_points.shp",
+  delete_layer = TRUE,
+  quiet = TRUE
 )

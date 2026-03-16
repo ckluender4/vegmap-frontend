@@ -1,39 +1,69 @@
+# -----------------------------
 # Node / Next.js
-node_modules
-.next
-out
-dist
+# -----------------------------
+node_modules/
+.next/
+out/
+dist/
 
+# logs
+*.log
+
+# environment variables
+.env
+.env.local
+.env.development
+.env.production
+
+# -----------------------------
 # Python
+# -----------------------------
 __pycache__/
 *.pyc
 *.pyo
-backend/__pycache__/
 
 # virtual environments
 venv/
 .env/
-.env
 
+# -----------------------------
 # OS
+# -----------------------------
 .DS_Store
 Thumbs.db
 
+# -----------------------------
 # IDE
+# -----------------------------
 .vscode/
 .idea/
 
-# GIS data
+# -----------------------------
+# GIS / Raster Data
+# -----------------------------
 *.tif
 *.tiff
+*.vrt
+*.aux.xml
+*.ovr
+
+# vector data
 *.shp
 *.dbf
 *.shx
+*.prj
 *.gpkg
 *.zip
 
-# R temporary plots
-backend/Rplots.pdf
+# -----------------------------
+# R outputs
+# -----------------------------
+Rplots.pdf
 
-# uploaded user files
+# -----------------------------
+# App generated files
+# -----------------------------
 backend/uploads/
+sampling_export/
+sampling_output.json
+sampling_points.geojson
