@@ -63,6 +63,8 @@ Rplots.pdf
 # -----------------------------
 # App generated files
 # -----------------------------
+backend/models/
+backend/outputs/
 backend/uploads/
 sampling_export/
 sampling_output.json

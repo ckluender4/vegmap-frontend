@@ -13,7 +13,9 @@ import {
     Tooltip,
     ReferenceLine,
     CartesianGrid,
-    ResponsiveContainer
+    ResponsiveContainer,
+    BarChart,
+    Bar
 } from "recharts";
 
 
@@ -28,7 +30,7 @@ export default function ToolWorkspace() {
     const [file, setFile] = useState<File | null>(null);
     const [preview, setPreview] = useState<string | null>(null);
 
-    const [selectedTool, setSelectedTool] = useState(mode);
+    const selectedTool = mode;
     const [aoiFile, setAoiFile] = useState<File | null>(null);
     const [maxSamples, setMaxSamples] = useState(20);
     const [minSpacing, setMinSpacing] = useState(100);
@@ -37,6 +39,12 @@ export default function ToolWorkspace() {
     const [samplingComplete, setSamplingComplete] = useState(false);
     const mapContainer = useRef<HTMLDivElement | null>(null);
     const map = useRef<any>(null);
+    const [trainingCsv, setTrainingCsv] = useState<File | null>(null);
+    const [responseColumn, setResponseColumn] = useState("eag_cover");
+    const [latColumn, setLatColumn] = useState("lat");
+    const [lonColumn, setLonColumn] = useState("lon");
+    const [modelComplete, setModelComplete] = useState(false);
+    const [metrics, setMetrics] = useState<any>(null);
 
     useEffect(() => {
         if (map.current) return;
@@ -130,6 +138,57 @@ export default function ToolWorkspace() {
         setRunning(false);
     };
 
+    const runFieldModel = async () => {
+
+        if (!aoiFile) {
+            setStatus("Please upload an AOI.");
+            return;
+        }
+
+        if (!trainingCsv) {
+            setStatus("Please upload a field data CSV.");
+            return;
+        }
+
+        setRunning(true);
+        setProgress(10);
+        setStatus("Uploading training data...");
+
+        try {
+
+            const formData = new FormData();
+
+            formData.append("csv", trainingCsv);
+            formData.append("lat_column", latColumn);
+            formData.append("lon_column", lonColumn);
+            formData.append("response_column", responseColumn);
+
+            const response = await fetch("http://127.0.0.1:8000/train-field-model", {
+                method: "POST",
+                body: formData
+            });
+
+            const result = await response.json();
+
+            setProgress(100);
+            setStatus("Model training complete");
+            setModelComplete(true);
+
+            if (result.metrics) {
+                setMetrics(result.metrics);
+            }
+
+        } catch (error) {
+
+            console.error(error);
+            setStatus("Error contacting modeling API");
+            setProgress(0);
+
+        }
+
+        setRunning(false);
+    };
+
     /* ADD THIS RIGHT HERE */
 
     const uploadAOI = async (file: File) => {
@@ -209,27 +268,18 @@ export default function ToolWorkspace() {
             <aside className="w-80 border-r border-slate-700 bg-gradient-to-b from-slate-800 to-slate-900 p-6 flex flex-col shadow-2xl relative z-10">
 
                 <h2 className="text-xl font-semibold text-blue-400 mb-1">
-                    {selectedTool === "vegetation" ? "Vegetation Mapping" : "Sampling Design"}
+                    {selectedTool === "sampling"
+                        ? "Sampling Design"
+                        : "Field-Based Vegetation Modeling"}
                 </h2>
 
                 <p className="text-sm text-slate-200 mb-6">
-                    {selectedTool === "vegetation"
-                        ? "Upload imagery and generate vegetation maps."
-                        : "Upload an AOI to generate optimized sampling locations."}
+                    {selectedTool === "sampling"
+                        ? "Upload an AOI to generate optimized sampling locations."
+                        : "Upload an AOI and field data points to train a spatial vegetation model."}
                 </p>
 
-                <div className="mb-4 border border-slate-700 rounded-lg p-4 bg-slate-800">
-                    <h3 className="font-medium mb-2 text-slate-100">Tool Type</h3>
 
-                    <select
-                        value={selectedTool}
-                        onChange={(e) => setSelectedTool(e.target.value)}
-                        className="w-full rounded-md bg-slate-900 border border-slate-700 text-slate-100 text-sm px-3 py-2"
-                    >
-                        <option value="vegetation">Vegetation Mapping</option>
-                        <option value="sampling">Sampling Design</option>
-                    </select>
-                </div>
 
                 {/* INPUT SECTION */}
 
@@ -273,6 +323,70 @@ export default function ToolWorkspace() {
 
                         <p className="text-xs text-slate-400 mt-2">
                             Upload a zipped shapefile (.zip containing .shp, .dbf, .shx).
+                        </p>
+                    </div>
+                )}
+
+                {selectedTool === "field-model" && (
+                    <div className="mb-4 border border-slate-700 rounded-lg p-4 bg-slate-800">
+                        <h3 className="font-medium mb-2 text-slate-100">AOI Upload</h3>
+
+                        <label className="flex flex-col items-center justify-center w-full h-24 border-2 border-dashed border-slate-600 rounded-lg cursor-pointer hover:border-blue-500 transition text-slate-300 text-sm">
+                            <span>Click to upload AOI (.zip shapefile)</span>
+
+                            <input
+                                type="file"
+                                accept=".zip"
+                                className="hidden"
+                                onChange={(e) => {
+                                    if (e.target.files) {
+                                        const file = e.target.files[0];
+                                        setAoiFile(file);
+                                        uploadAOI(file);
+                                    }
+                                }}
+                            />
+                        </label>
+
+                        {aoiFile && (
+                            <p className="text-xs text-green-400 mt-2">
+                                Uploaded: {aoiFile.name}
+                            </p>
+                        )}
+
+                        <p className="text-xs text-slate-400 mt-2">
+                            Upload a zipped shapefile defining the area to model.
+                        </p>
+                    </div>
+                )}
+
+                {selectedTool === "field-model" && (
+                    <div className="mb-4 border border-slate-700 rounded-lg p-4 bg-slate-800">
+                        <h3 className="font-medium mb-2 text-slate-100">Field Data Upload</h3>
+
+                        <label className="flex flex-col items-center justify-center w-full h-24 border-2 border-dashed border-slate-600 rounded-lg cursor-pointer hover:border-blue-500 transition text-slate-300 text-sm">
+                            <span>Click to upload CSV</span>
+
+                            <input
+                                type="file"
+                                accept=".csv"
+                                className="hidden"
+                                onChange={(e) => {
+                                    if (e.target.files) {
+                                        setTrainingCsv(e.target.files[0]);
+                                    }
+                                }}
+                            />
+                        </label>
+
+                        {trainingCsv && (
+                            <p className="text-xs text-green-400 mt-2">
+                                Uploaded: {trainingCsv.name}
+                            </p>
+                        )}
+
+                        <p className="text-xs text-slate-400 mt-2">
+                            CSV should include latitude, longitude, and a vegetation response column.
                         </p>
                     </div>
                 )}
@@ -329,9 +443,51 @@ export default function ToolWorkspace() {
 
                     </div>
                 )}
+
+                {selectedTool === "field-model" && (
+                    <div className="mb-4 border border-slate-700 rounded-lg p-4 bg-slate-800">
+                        <h3 className="font-medium mb-2 text-slate-100">Model Settings</h3>
+
+                        <div className="flex flex-col gap-3 text-xs text-slate-300">
+                            <label className="flex flex-col">
+                                Response column
+                                <input
+                                    type="text"
+                                    value={responseColumn}
+                                    onChange={(e) => setResponseColumn(e.target.value)}
+                                    className="mt-1 bg-slate-900 border border-slate-700 rounded px-2 py-1"
+                                />
+                            </label>
+
+                            <label className="flex flex-col">
+                                Latitude column
+                                <input
+                                    type="text"
+                                    value={latColumn}
+                                    onChange={(e) => setLatColumn(e.target.value)}
+                                    className="mt-1 bg-slate-900 border border-slate-700 rounded px-2 py-1"
+                                />
+                            </label>
+
+                            <label className="flex flex-col">
+                                Longitude column
+                                <input
+                                    type="text"
+                                    value={lonColumn}
+                                    onChange={(e) => setLonColumn(e.target.value)}
+                                    className="mt-1 bg-slate-900 border border-slate-700 rounded px-2 py-1"
+                                />
+                            </label>
+                        </div>
+                    </div>
+                )}
+
                 {/* RUN BUTTON */}
                 <button
-                    onClick={runModel}
+                    onClick={() => {
+                        if (selectedTool === "sampling") runModel();
+                        if (selectedTool === "field-model") runFieldModel();
+                    }}
                     disabled={running}
                     className={`w-full py-3 rounded-lg font-medium transition shadow-sm mb-4 ${running
                         ? "bg-blue-900 text-blue-200 cursor-not-allowed"
@@ -342,10 +498,12 @@ export default function ToolWorkspace() {
                         ? "Running..."
                         : selectedTool === "vegetation"
                             ? "Run Vegetation Model"
-                            : "Run Sampling Design"}
+                            : selectedTool === "sampling"
+                                ? "Run Sampling Design"
+                                : "Run Field-Based Model"}
                 </button>
 
-                {samplingComplete && (
+                {samplingComplete && selectedTool === "sampling" && (
                     <button
                         onClick={() => window.open("http://127.0.0.1:8000/download-sampling")}
                         className="w-full py-3 rounded-lg font-medium transition shadow-sm mb-4 bg-green-700 hover:bg-green-800 text-white"
@@ -375,17 +533,23 @@ export default function ToolWorkspace() {
             <section className="relative z-10 flex-1 p-8 flex flex-col">
 
                 <div className="flex items-center justify-between mb-4">
+
                     <h1 className="text-2xl font-semibold text-slate-100">
-                        Workspace
+                        {selectedTool === "sampling"
+                            ? "Sampling Design Workspace"
+                            : "Field-Based Vegetation Modeling"}
                     </h1>
 
                     <div className="text-xs text-slate-400 bg-slate-800 px-3 py-1 rounded-md">
                         Idle
                     </div>
+
                 </div>
 
                 <p className="text-slate-200 mb-6">
-                    Model outputs and spatial previews will appear here.
+                    {selectedTool === "sampling"
+                        ? "Sampling locations and environmental coverage diagnostics will appear here."
+                        : "Model training outputs and predicted vegetation maps will appear here."}
                 </p>
 
                 {/* MAP CANVAS */}
@@ -393,6 +557,119 @@ export default function ToolWorkspace() {
 
                     {/* MAP */}
                     <div ref={mapContainer} className="w-full h-full" />
+
+                    {/* MODEL DIAGNOSTICS */}
+
+                    {modelComplete && metrics && selectedTool === "field-model" && (
+
+                        <div className="mt-6 grid grid-cols-1 md:grid-cols-2 gap-6">
+
+                            {/* MODEL METRICS */}
+                            <div className="bg-slate-900 border border-slate-700 rounded-lg p-4">
+
+                                <h3 className="text-sm font-semibold text-blue-300 mb-3">
+                                    Model Performance
+                                </h3>
+
+                                <div className="grid grid-cols-3 gap-4 text-center">
+
+                                    <div>
+                                        <div className="text-xs text-slate-400">R²</div>
+                                        <div className="text-lg font-semibold text-green-400">
+                                            {metrics.r2?.toFixed(3)}
+                                        </div>
+                                    </div>
+
+                                    <div>
+                                        <div className="text-xs text-slate-400">RMSE</div>
+                                        <div className="text-lg font-semibold text-blue-400">
+                                            {metrics.rmse?.toFixed(3)}
+                                        </div>
+                                    </div>
+
+                                    <div>
+                                        <div className="text-xs text-slate-400">MAE</div>
+                                        <div className="text-lg font-semibold text-purple-400">
+                                            {metrics.mae?.toFixed(3)}
+                                        </div>
+                                    </div>
+
+                                </div>
+
+                            </div>
+
+                            {/* VARIABLE IMPORTANCE */}
+                            {metrics.var_importance?.length > 0 && (
+
+                                <div className="bg-slate-900 border border-slate-700 rounded-lg p-4">
+
+                                    <h3 className="text-sm font-semibold text-blue-300 mb-3">
+                                        Variable Importance
+                                    </h3>
+
+                                    <ResponsiveContainer width="100%" height={220}>
+
+                                        <BarChart data={metrics.var_importance}>
+
+                                            <XAxis
+                                                dataKey="variable"
+                                                stroke="#94a3b8"
+                                                tick={{ fontSize: 10 }}
+                                            />
+
+                                            <YAxis
+                                                stroke="#94a3b8"
+                                                tick={{ fontSize: 10 }}
+                                            />
+
+                                            <Tooltip
+                                                contentStyle={{
+                                                    background: "#0f172a",
+                                                    border: "1px solid #334155"
+                                                }}
+                                            />
+
+                                            <Bar
+                                                dataKey="relative_importance"
+                                                fill="#3b82f6"
+                                            />
+
+                                        </BarChart>
+
+                                    </ResponsiveContainer>
+
+                                </div>
+
+                            )}
+
+                        </div>
+
+                    )}
+
+                    <button
+                        onClick={async () => {
+
+                            setStatus("Generating prediction raster...")
+
+                            await fetch("http://127.0.0.1:8000/predict-raster", {
+                                method: "POST"
+                            })
+
+                            setStatus("Prediction raster complete")
+
+                        }}
+
+                        className="w-full py-3 rounded-lg font-medium bg-purple-700 hover:bg-purple-800 text-white"
+                    >
+                        Generate Prediction Map
+                    </button>
+
+                    <button
+                        onClick={() => window.open("http://127.0.0.1:8000/download-prediction")}
+                        className="w-full py-3 rounded-lg font-medium bg-green-700 hover:bg-green-800 text-white"
+                    >
+                        Download Prediction Raster
+                    </button>
 
                     {/* COVERAGE CURVE PANEL */}
                     {selectedTool === "sampling" && samplingComplete && (
@@ -432,7 +709,7 @@ export default function ToolWorkspace() {
                                         }}
                                     />
 
-                                    <ReferenceLine y={0.95} stroke="#22c55e" strokeDasharray="3 3"/>
+                                    <ReferenceLine y={0.95} stroke="#22c55e" strokeDasharray="3 3" />
 
                                     <Line
                                         type="monotone"

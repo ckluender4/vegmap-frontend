@@ -31,11 +31,21 @@ export default function Home() {
           built for scientists, researchers, and land managers.
         </p>
 
-        <Link href="/tool">
-          <button className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition shadow-md hover:shadow-blue-400/20">
-            Open VegMap Workspace
-          </button>
-        </Link>
+        <div className="flex gap-4">
+
+          <Link href="/tool?mode=sampling">
+            <button className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition shadow-md">
+              Sampling Design
+            </button>
+          </Link>
+
+          <Link href="/tool?mode=field-model">
+            <button className="bg-slate-800 text-white px-6 py-3 rounded-lg hover:bg-slate-900 transition shadow-md">
+              Field Vegetation Modeling
+            </button>
+          </Link>
+
+        </div>
 
       </section>
 
@@ -55,7 +65,7 @@ export default function Home() {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
 
           {/* TOOL CARD */}
-          <div className="border border-slate-200 rounded-xl p-6 bg-white shadow-sm hover:shadow-md hover:-translate-y-1 transition">
+          {/* <div className="border border-slate-200 rounded-xl p-6 bg-white shadow-sm hover:shadow-md hover:-translate-y-1 transition">
 
             <h3 className="font-semibold text-lg mb-2 text-blue-700">
               Vegetation Mapping
@@ -64,6 +74,20 @@ export default function Home() {
             <p className="text-slate-600 text-sm leading-relaxed">
               Generate high-resolution vegetation maps using deep learning
               models applied to aerial imagery and satellite datasets.
+            </p>
+
+          </div> */}
+
+          {/* TOOL CARD */}
+          <div className="border border-slate-200 rounded-xl p-6 bg-white shadow-sm hover:shadow-md hover:-translate-y-1 transition">
+
+            <h3 className="font-semibold text-lg mb-2 text-blue-700">
+              Field-Based Vegetation Modeling
+            </h3>
+
+            <p className="text-slate-600 text-sm leading-relaxed">
+              Train spatial vegetation models using field observations
+              and environmental predictor layers.
             </p>
 
           </div>
@@ -240,12 +264,21 @@ export default function Home() {
             designing monitoring networks, and running spatial analysis tools.
           </p>
 
-          <Link
-            href="/tool"
-            className="inline-block bg-blue-600 hover:bg-blue-700 transition px-8 py-3 rounded-lg font-medium text-white shadow-md"
-          >
-            Open VegMap Workspace
-          </Link>
+          <div className="flex gap-4">
+
+            <Link href="/tool?mode=sampling">
+              <button className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition shadow-md">
+                Sampling Design
+              </button>
+            </Link>
+
+            <Link href="/tool?mode=field-model">
+              <button className="bg-slate-800 text-white px-6 py-3 rounded-lg hover:bg-slate-900 transition shadow-md">
+                Field Vegetation Modeling
+              </button>
+            </Link>
+
+          </div>
 
         </div>
 

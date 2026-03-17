@@ -7,7 +7,7 @@ import { useState, useRef, useEffect } from "react";
 export default function Navbar() {
 
   const pathname = usePathname();
-  const isToolPage = pathname === "/tool";
+  const isToolPage = pathname.startsWith("/tool");
 
   const [open, setOpen] = useState(false);
 
@@ -75,27 +75,7 @@ export default function Navbar() {
 
               {/* ACTIVE TOOLS */}
 
-              <Link
-                href="/tool?mode=vegetation"
-                onClick={() => setOpen(false)}
-                className="block px-4 py-3 hover:bg-slate-50 transition"
-              >
-                <div className="flex gap-3">
 
-                  <div className="text-lg">🌿</div>
-
-                  <div>
-                    <div className="text-sm font-medium text-slate-900">
-                      Vegetation Mapping
-                    </div>
-
-                    <div className="text-xs text-slate-500">
-                      Deep learning vegetation classification from imagery
-                    </div>
-                  </div>
-
-                </div>
-              </Link>
 
 
               <Link
@@ -120,6 +100,28 @@ export default function Navbar() {
                 </div>
               </Link>
 
+              <Link
+                href="/tool?mode=field-model"
+                onClick={() => setOpen(false)}
+                className="block px-4 py-3 hover:bg-slate-50 transition"
+              >
+                <div className="flex gap-3">
+
+                  <div className="text-lg">🌱</div>
+
+                  <div>
+                    <div className="text-sm font-medium text-slate-900">
+                      Field-Based Vegetation Modeling
+                    </div>
+
+                    <div className="text-xs text-slate-500">
+                      Train spatial vegetation models from field data points
+                    </div>
+                  </div>
+
+                </div>
+              </Link>
+
 
               {/* DIVIDER */}
 
@@ -130,6 +132,22 @@ export default function Navbar() {
 
               <div className="px-4 py-2 text-xs text-slate-400 uppercase tracking-wide">
                 Coming Soon
+              </div>
+
+              <div className="px-4 py-3 flex gap-3 opacity-60">
+
+                <div className="text-lg">🌿</div>
+
+                <div>
+                  <div className="text-sm font-medium text-slate-700">
+                    Deep Learning Vegetation Classification
+                  </div>
+
+                  <div className="text-xs text-slate-500">
+                    Semantic segmentation of vegetation from aerial imagery
+                  </div>
+                </div>
+
               </div>
 
 

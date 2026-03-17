@@ -40,6 +40,7 @@ import geopandas as gpd
 import zipfile
 import tempfile
 import os
+import json
 
 @app.post("/upload-aoi")
 async def upload_aoi(file: UploadFile = File(...)):
@@ -49,24 +50,53 @@ async def upload_aoi(file: UploadFile = File(...)):
 
     with tempfile.TemporaryDirectory() as tmp:
 
+        # Save uploaded zip
         zip_path = os.path.join(tmp, file.filename)
-
         with open(zip_path, "wb") as f:
             f.write(await file.read())
 
+        # Extract shapefile contents
         with zipfile.ZipFile(zip_path, "r") as zip_ref:
             zip_ref.extractall(tmp)
 
-        shp_files = [f for f in os.listdir(tmp) if f.endswith(".shp")]
+        # Find the shapefile
+        shp_files = [f for f in os.listdir(tmp) if f.lower().endswith(".shp")]
+        if len(shp_files) == 0:
+            return {"error": "No .shp file found in uploaded zip"}
+
         shp_path = os.path.join(tmp, shp_files[0])
 
-        # Save a copy for the sampling script
-        saved_path = os.path.join(upload_dir, "uploaded_aoi.shp")
-
+        # Load AOI
         gdf = gpd.read_file(shp_path)
+
+        # Remove empty geometry
+        gdf = gdf[gdf.geometry.notnull()]
+
+        # Fix topology issues (self intersections, open rings, etc.)
+        gdf["geometry"] = gdf.geometry.buffer(0)
+
+        # Drop still-invalid geometry
+        gdf = gdf[gdf.is_valid]
+
+        if len(gdf) == 0:
+            return {"error": "Uploaded AOI contains no valid geometry"}
+
+        # Ensure CRS exists
+        if gdf.crs is None:
+            gdf = gdf.set_crs(4326)
+
+        # Dissolve to a single AOI polygon
+        gdf = gdf.dissolve()
+
+        # Save AOI for backend scripts
+        saved_path = os.path.join(upload_dir, "uploaded_aoi.shp")
         gdf.to_file(saved_path)
 
-        geojson = gdf.to_crs(4326).__geo_interface__
+        # Convert to web CRS for map display
+        gdf_web = gdf.to_crs(4326)
+
+        # Convert safely to GeoJSON
+        geojson = json.loads(gdf_web.to_json())
 
         return geojson
 
@@ -114,4 +144,105 @@ async def download_sampling():
         zip_path,
         media_type="application/zip",
         filename="sampling_points.zip"
+    )
+    
+
+import subprocess
+import shutil
+import os
+import json
+from fastapi import UploadFile, File, Form
+
+@app.post("/train-field-model")
+async def train_field_model(
+    csv: UploadFile = File(...),
+    lat_column: str = Form(...),
+    lon_column: str = Form(...),
+    response_column: str = Form(...)
+):
+
+    upload_dir = "uploads"
+    os.makedirs(upload_dir, exist_ok=True)
+
+    csv_path = os.path.join(upload_dir, "training_points.csv")
+
+    # -----------------------------
+    # Save uploaded CSV
+    # -----------------------------
+    with open(csv_path, "wb") as buffer:
+        shutil.copyfileobj(csv.file, buffer)
+
+    print("Received CSV:", csv_path)
+    print("Lat column:", lat_column)
+    print("Lon column:", lon_column)
+    print("Response column:", response_column)
+
+    # -----------------------------
+    # STEP 1 — Build training table
+    # -----------------------------
+    subprocess.run([
+        "python",
+        "build_training_data.py",
+        "uploads/uploaded_aoi.shp",
+        csv_path,
+        lat_column,
+        lon_column
+    ], check=True)
+
+    print("Training table built.")
+
+    # -----------------------------
+    # STEP 2 — Train AutoML model
+    # -----------------------------
+    subprocess.run([
+        "python",
+        "train_h2o_model.py",
+        response_column
+    ], check=True)
+
+    print("Model training complete.")
+
+    # -----------------------------
+    # STEP 3 — Load model metrics
+    # -----------------------------
+    metrics_path = "outputs/model_metrics.json"
+
+    metrics = None
+    if os.path.exists(metrics_path):
+        with open(metrics_path) as f:
+            metrics = json.load(f)
+
+    # -----------------------------
+    # Return results to frontend
+    # -----------------------------
+    return {
+        "status": "model_trained",
+        "metrics": metrics
+    }
+    
+    
+@app.post("/predict-raster")
+async def predict_raster():
+
+    import subprocess
+
+    subprocess.run([
+        "python",
+        "predict_raster.py"
+    ], check=True)
+
+    return {
+        "status": "success",
+        "raster": "outputs/prediction.tif"
+    }
+    
+from fastapi.responses import FileResponse
+
+@app.get("/download-prediction")
+async def download_prediction():
+
+    return FileResponse(
+        "outputs/prediction.tif",
+        media_type="image/tiff",
+        filename="prediction.tif"
     )
