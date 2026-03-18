@@ -21,6 +21,7 @@ dist/
 __pycache__/
 *.pyc
 *.pyo
+__pycache__/
 
 # virtual environments
 venv/

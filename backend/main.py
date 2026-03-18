@@ -1,7 +1,26 @@
 from fastapi import FastAPI, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, Response
+from fastapi import APIRouter
+
 import numpy as np
 from PIL import Image
+import geopandas as gpd
+import zipfile
+import tempfile
+import os
+import json
+import subprocess
+import shutil
+
+from titiler.core.factory import TilerFactory
+from rio_tiler.io import Reader
+from rio_tiler.colormap import cmap as default_cmaps
+from rio_tiler.utils import render
+from rio_tiler.errors import TileOutsideBounds
+from rio_tiler.colormap import cmap
+from fastapi.responses import Response
+
 
 app = FastAPI()
 
@@ -16,6 +35,14 @@ app.add_middleware(
 @app.get("/")
 def root():
     return {"message": "VegMap API is running"}
+
+
+cog = TilerFactory()
+
+router = APIRouter()
+router.include_router(cog.router, prefix="/cog")
+
+app.include_router(router)
 
 @app.post("/predict")
 async def predict(file: UploadFile = File(...)):
@@ -35,12 +62,6 @@ async def predict(file: UploadFile = File(...)):
     }
 
 
-from fastapi import UploadFile, File
-import geopandas as gpd
-import zipfile
-import tempfile
-import os
-import json
 
 @app.post("/upload-aoi")
 async def upload_aoi(file: UploadFile = File(...)):
@@ -87,6 +108,10 @@ async def upload_aoi(file: UploadFile = File(...)):
 
         # Dissolve to a single AOI polygon
         gdf = gdf.dissolve()
+        gdf = gdf[gdf.geometry.notnull() & gdf.is_valid]
+
+        if gdf.empty:
+            return {"error": "AOI invalid after dissolve"}
 
         # Save AOI for backend scripts
         saved_path = os.path.join(upload_dir, "uploaded_aoi.shp")
@@ -94,16 +119,13 @@ async def upload_aoi(file: UploadFile = File(...)):
 
         # Convert to web CRS for map display
         gdf_web = gdf.to_crs(4326)
+        gdf_web = gdf_web[gdf_web.is_valid & gdf_web.geometry.notnull()]
 
         # Convert safely to GeoJSON
-        geojson = json.loads(gdf_web.to_json())
+        geojson = json.loads(gdf_web.to_json(na="null"))
 
         return geojson
 
-import subprocess
-import json
-
-from fastapi import Form
 
 @app.post("/run-sampling")
 async def run_sampling(
@@ -125,10 +147,6 @@ async def run_sampling(
     return output
 
 
-
-from fastapi.responses import FileResponse
-import shutil
-
 @app.get("/download-sampling")
 async def download_sampling():
 
@@ -147,11 +165,6 @@ async def download_sampling():
     )
     
 
-import subprocess
-import shutil
-import os
-import json
-from fastapi import UploadFile, File, Form
 
 @app.post("/train-field-model")
 async def train_field_model(
@@ -160,15 +173,16 @@ async def train_field_model(
     lon_column: str = Form(...),
     response_column: str = Form(...)
 ):
+    import pandas as pd
+    import geopandas as gpd
+    from shapely.geometry import Point
 
     upload_dir = "uploads"
     os.makedirs(upload_dir, exist_ok=True)
+    os.makedirs("outputs", exist_ok=True)
 
     csv_path = os.path.join(upload_dir, "training_points.csv")
 
-    # -----------------------------
-    # Save uploaded CSV
-    # -----------------------------
     with open(csv_path, "wb") as buffer:
         shutil.copyfileobj(csv.file, buffer)
 
@@ -177,9 +191,7 @@ async def train_field_model(
     print("Lon column:", lon_column)
     print("Response column:", response_column)
 
-    # -----------------------------
-    # STEP 1 — Build training table
-    # -----------------------------
+    # Build training table
     subprocess.run([
         "python",
         "build_training_data.py",
@@ -191,9 +203,7 @@ async def train_field_model(
 
     print("Training table built.")
 
-    # -----------------------------
-    # STEP 2 — Train AutoML model
-    # -----------------------------
+    # Train model
     subprocess.run([
         "python",
         "train_h2o_model.py",
@@ -202,22 +212,34 @@ async def train_field_model(
 
     print("Model training complete.")
 
-    # -----------------------------
-    # STEP 3 — Load model metrics
-    # -----------------------------
+    # Load model metrics
     metrics_path = "outputs/model_metrics.json"
-
     metrics = None
     if os.path.exists(metrics_path):
         with open(metrics_path) as f:
             metrics = json.load(f)
 
-    # -----------------------------
-    # Return results to frontend
-    # -----------------------------
+    # Load original CSV and convert points for map display
+    df = pd.read_csv(csv_path)
+
+    if lat_column not in df.columns or lon_column not in df.columns:
+        return {
+            "status": "error",
+            "message": f"CSV missing lat/lon columns: {lat_column}, {lon_column}"
+        }
+
+    gdf = gpd.GeoDataFrame(
+        df.copy(),
+        geometry=gpd.points_from_xy(df[lon_column], df[lat_column]),
+        crs="EPSG:4326"
+    )
+
+    training_points_geojson = json.loads(gdf.to_json())
+
     return {
         "status": "model_trained",
-        "metrics": metrics
+        "metrics": metrics,
+        "training_points": training_points_geojson
     }
     
     
@@ -225,18 +247,25 @@ async def train_field_model(
 async def predict_raster():
 
     import subprocess
+    import sys
 
-    subprocess.run([
-        "python",
-        "predict_raster.py"
-    ], check=True)
+    result = subprocess.run(
+        [sys.executable, "predict_raster.py"],
+        capture_output=True,
+        text=True
+    )
+
+    print(result.stdout)
+    print(result.stderr)
+
+    if result.returncode != 0:
+        return {"status": "error", "stderr": result.stderr}
 
     return {
-        "status": "success",
-        "raster": "outputs/prediction.tif"
+    "status": "success",
+    "raster": "outputs/prediction_cog.tif"
     }
     
-from fastapi.responses import FileResponse
 
 @app.get("/download-prediction")
 async def download_prediction():
@@ -246,3 +275,81 @@ async def download_prediction():
         media_type="image/tiff",
         filename="prediction.tif"
     )
+    
+@app.get("/prediction-progress")
+def prediction_progress():
+
+    path = "outputs/prediction_progress.json"
+
+    if not os.path.exists(path):
+        return {
+            "progress": 0,
+            "status": "starting"
+        }
+
+    try:
+        with open(path) as f:
+            return json.load(f)
+
+    except PermissionError:
+        # file is temporarily locked while being written
+        return {"progress": 0}
+    
+
+@app.get("/prediction-raster")
+def prediction_raster():
+    return FileResponse(
+        "outputs/prediction.tif",
+        media_type="image/tiff",
+        filename="prediction.tif"
+    )
+    
+    
+    
+@app.get("/prediction-legend")
+def prediction_legend():
+    return FileResponse(
+        "outputs/prediction_legend.png",
+        media_type="image/png"
+    )
+    
+
+@app.get("/prediction-cog")
+def prediction_cog():
+    return FileResponse(
+        "outputs/prediction_cog.tif",
+        media_type="image/tiff",
+        filename="prediction_cog.tif"
+    )
+
+@app.get("/prediction-tile/{z}/{x}/{y}.png")
+def prediction_tile(z: int, x: int, y: int):
+
+    path = "outputs/prediction_cog.tif"
+
+    if not os.path.exists(path):
+        return Response(status_code=404)
+
+    try:
+        with Reader(path) as src:
+
+            img = src.tile(x, y, z)
+
+            data = img.data[0]
+            mask = img.mask
+
+            rendered = render(
+                data,
+                mask=mask,
+                colormap=cmap.get("viridis")
+            )
+
+        return Response(
+            content=rendered,
+            media_type="image/png"
+        )
+
+    except TileOutsideBounds:
+        # Mapbox requested tile outside raster bounds
+        return Response(status_code=204)
+    

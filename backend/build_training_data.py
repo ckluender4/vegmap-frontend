@@ -26,25 +26,40 @@ points = gpd.GeoDataFrame(
 
 print("Filtering points inside AOI...")
 points = points.to_crs(aoi.crs)
-
 points = gpd.sjoin(points, aoi, predicate="within")
 
 print(f"{len(points)} points inside AOI")
 
 print("Extracting raster predictors...")
 
-coords = [(geom.x, geom.y) for geom in points.geometry]
-
 with rasterio.open(stack_path) as src:
 
     points = points.to_crs(src.crs)
 
+    coords = [(geom.x, geom.y) for geom in points.geometry]
+
     samples = list(src.sample(coords))
 
-X = pd.DataFrame(samples)
+    band_names = list(src.descriptions)
+
+    if not band_names or all(b is None for b in band_names):
+        band_names = [str(i + 1) for i in range(src.count)]
+
+    X = pd.DataFrame(samples, columns=band_names)
+
+points_clean = points.reset_index(drop=True).drop(
+    columns=[
+        "geometry",
+        "index_right",
+        "POLY",
+        "Shape_Leng",
+        "Shape_Area"
+    ],
+    errors="ignore"
+)
 
 training = pd.concat(
-    [points.reset_index(drop=True), X],
+    [points_clean, X],
     axis=1
 )
 

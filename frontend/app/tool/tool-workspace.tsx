@@ -22,7 +22,12 @@ import {
 export default function ToolWorkspace() {
 
     const searchParams = useSearchParams();
-    const mode = searchParams.get("mode") ?? "vegetation";
+    const mode = searchParams.get("mode") ?? "field-model";
+    const selectedTool =
+        mode === "sampling" ? "sampling" :
+            mode === "field-model" ? "field-model" :
+                mode === "vegetation" ? "vegetation" :
+                    "field-model";
 
     const [running, setRunning] = useState(false);
     const [progress, setProgress] = useState(0);
@@ -30,7 +35,6 @@ export default function ToolWorkspace() {
     const [file, setFile] = useState<File | null>(null);
     const [preview, setPreview] = useState<string | null>(null);
 
-    const selectedTool = mode;
     const [aoiFile, setAoiFile] = useState<File | null>(null);
     const [maxSamples, setMaxSamples] = useState(20);
     const [minSpacing, setMinSpacing] = useState(100);
@@ -45,6 +49,7 @@ export default function ToolWorkspace() {
     const [lonColumn, setLonColumn] = useState("lon");
     const [modelComplete, setModelComplete] = useState(false);
     const [metrics, setMetrics] = useState<any>(null);
+    const [predictionComplete, setPredictionComplete] = useState(false);
 
     useEffect(() => {
         if (map.current) return;
@@ -170,6 +175,30 @@ export default function ToolWorkspace() {
 
             const result = await response.json();
 
+            if (result.training_points && map.current) {
+                if (map.current.getSource("training-points")) {
+                    map.current.removeLayer("training-points");
+                    map.current.removeSource("training-points");
+                }
+
+                map.current.addSource("training-points", {
+                    type: "geojson",
+                    data: result.training_points
+                });
+
+                map.current.addLayer({
+                    id: "training-points",
+                    type: "circle",
+                    source: "training-points",
+                    paint: {
+                        "circle-radius": 4,
+                        "circle-color": "#f59e0b",
+                        "circle-stroke-color": "#ffffff",
+                        "circle-stroke-width": 1
+                    }
+                });
+            }
+
             setProgress(100);
             setStatus("Model training complete");
             setModelComplete(true);
@@ -255,6 +284,56 @@ export default function ToolWorkspace() {
             duration: 1000
         })
 
+    };
+
+
+    const loadPredictionLayer = async () => {
+        if (!map.current) return;
+
+        const res = await fetch("http://127.0.0.1:8000/prediction-progress");
+        const data = await res.json();
+
+        if (!data.bounds) {
+            console.error("Prediction bounds not available.");
+            return;
+        }
+
+        const mapInstance = map.current;
+
+        if (mapInstance.getLayer("prediction")) {
+            mapInstance.removeLayer("prediction");
+        }
+
+        if (mapInstance.getSource("prediction")) {
+            mapInstance.removeSource("prediction");
+        }
+
+        mapInstance.addSource("prediction", {
+            type: "raster",
+            tiles: [
+                `http://127.0.0.1:8000/prediction-tile/{z}/{x}/{y}.png?ts=${Date.now()}`
+            ],
+            tileSize: 256
+        });
+
+        mapInstance.addLayer({
+            id: "prediction",
+            type: "raster",
+            source: "prediction",
+            paint: {
+                "raster-opacity": 0.72
+            }
+        });
+
+        const { west, south, east, north } = data.bounds;
+
+        mapInstance.fitBounds(
+            [
+                [west, south],
+                [east, north]
+            ],
+            { padding: 40, duration: 1000 }
+        );
     };
 
 
@@ -541,7 +620,7 @@ export default function ToolWorkspace() {
                     </h1>
 
                     <div className="text-xs text-slate-400 bg-slate-800 px-3 py-1 rounded-md">
-                        Idle
+                        {running ? "Running" : predictionComplete ? "Prediction complete" : "Idle"}
                     </div>
 
                 </div>
@@ -561,115 +640,192 @@ export default function ToolWorkspace() {
                     {/* MODEL DIAGNOSTICS */}
 
                     {modelComplete && metrics && selectedTool === "field-model" && (
-
-                        <div className="mt-6 grid grid-cols-1 md:grid-cols-2 gap-6">
-
-                            {/* MODEL METRICS */}
-                            <div className="bg-slate-900 border border-slate-700 rounded-lg p-4">
-
+                        <div className="absolute bottom-4 left-4 z-20 grid grid-cols-1 md:grid-cols-2 gap-4 max-w-5xl">
+                            <div className="bg-slate-900/95 border border-slate-700 rounded-lg p-4 min-w-[260px]">
                                 <h3 className="text-sm font-semibold text-blue-300 mb-3">
                                     Model Performance
                                 </h3>
 
                                 <div className="grid grid-cols-3 gap-4 text-center">
-
                                     <div>
                                         <div className="text-xs text-slate-400">R²</div>
                                         <div className="text-lg font-semibold text-green-400">
-                                            {metrics.r2?.toFixed(3)}
+                                            {typeof metrics.r2 === "number" ? metrics.r2.toFixed(3) : "NA"}
                                         </div>
                                     </div>
 
                                     <div>
                                         <div className="text-xs text-slate-400">RMSE</div>
                                         <div className="text-lg font-semibold text-blue-400">
-                                            {metrics.rmse?.toFixed(3)}
+                                            {typeof metrics.rmse === "number" ? metrics.rmse.toFixed(3) : "NA"}
                                         </div>
                                     </div>
 
                                     <div>
                                         <div className="text-xs text-slate-400">MAE</div>
                                         <div className="text-lg font-semibold text-purple-400">
-                                            {metrics.mae?.toFixed(3)}
+                                            {typeof metrics.mae === "number" ? metrics.mae.toFixed(3) : "NA"}
                                         </div>
                                     </div>
-
                                 </div>
 
+                                <div className="mt-3 text-xs text-slate-400">
+                                    Response: <span className="text-slate-200">{metrics.response_column}</span>
+                                </div>
                             </div>
 
-                            {/* VARIABLE IMPORTANCE */}
                             {metrics.var_importance?.length > 0 && (
-
-                                <div className="bg-slate-900 border border-slate-700 rounded-lg p-4">
-
+                                <div className="bg-slate-900/95 border border-slate-700 rounded-lg p-4 w-[420px]">
                                     <h3 className="text-sm font-semibold text-blue-300 mb-3">
                                         Variable Importance
                                     </h3>
 
                                     <ResponsiveContainer width="100%" height={220}>
-
-                                        <BarChart data={metrics.var_importance}>
-
-                                            <XAxis
+                                        <BarChart data={metrics.var_importance} layout="vertical">
+                                            <XAxis type="number" stroke="#94a3b8" tick={{ fontSize: 10 }} />
+                                            <YAxis
+                                                type="category"
                                                 dataKey="variable"
                                                 stroke="#94a3b8"
                                                 tick={{ fontSize: 10 }}
+                                                width={120}
                                             />
-
-                                            <YAxis
-                                                stroke="#94a3b8"
-                                                tick={{ fontSize: 10 }}
-                                            />
-
                                             <Tooltip
                                                 contentStyle={{
                                                     background: "#0f172a",
                                                     border: "1px solid #334155"
                                                 }}
                                             />
-
-                                            <Bar
-                                                dataKey="relative_importance"
-                                                fill="#3b82f6"
-                                            />
-
+                                            <Bar dataKey="relative_importance" fill="#3b82f6" />
                                         </BarChart>
-
                                     </ResponsiveContainer>
-
                                 </div>
-
                             )}
-
                         </div>
-
                     )}
 
-                    <button
-                        onClick={async () => {
+                    {selectedTool === "field-model" && modelComplete && (
+                        <div className="absolute top-4 right-4 z-20 flex flex-col gap-3 w-72">
+                            <button
+                                onClick={async () => {
 
-                            setStatus("Generating prediction raster...")
+                                    try {
 
-                            await fetch("http://127.0.0.1:8000/predict-raster", {
-                                method: "POST"
-                            })
+                                        setRunning(true);
+                                        setStatus("Generating prediction raster...");
+                                        setProgress(0);
 
-                            setStatus("Prediction raster complete")
+                                        // start prediction (don't await yet)
+                                        const predictionRequest = fetch("http://127.0.0.1:8000/predict-raster", {
+                                            method: "POST"
+                                        });
+                                        // start polling backend progress
+                                        const interval = setInterval(async () => {
 
-                        }}
+                                            try {
 
-                        className="w-full py-3 rounded-lg font-medium bg-purple-700 hover:bg-purple-800 text-white"
-                    >
-                        Generate Prediction Map
-                    </button>
+                                                const res = await fetch("http://127.0.0.1:8000/prediction-progress");
+                                                const data = await res.json();
 
-                    <button
-                        onClick={() => window.open("http://127.0.0.1:8000/download-prediction")}
-                        className="w-full py-3 rounded-lg font-medium bg-green-700 hover:bg-green-800 text-white"
-                    >
-                        Download Prediction Raster
-                    </button>
+                                                const pct = Math.round((data.progress ?? 0) * 100);
+                                                setProgress(pct);
+
+                                                if (data.status === "starting") {
+                                                    setStatus("Preparing prediction...");
+                                                } else if (data.status === "predicting") {
+                                                    setStatus(`Predicting tiles (${data.tiles_done}/${data.tiles_total})`);
+                                                } else if (data.status === "writing_raster") {
+                                                    setStatus("Writing raster...");
+                                                } else if (data.status === "building_cog") {
+                                                    setStatus("Building COG for map display...");
+                                                } else if (data.status === "complete") {
+                                                    setStatus("Prediction complete");
+                                                }
+
+                                                if (data.status === "complete") {
+                                                    clearInterval(interval);
+
+                                                    setRunning(false);
+                                                    setPredictionComplete(true);
+                                                    setProgress(100);
+                                                    setStatus("Prediction raster complete");
+
+                                                    await loadPredictionLayer();
+                                                }
+
+                                            } catch (err) {
+
+                                                console.error("Progress polling failed", err);
+
+                                            }
+
+                                        }, 1000);
+
+                                    } catch (error) {
+
+                                        console.error(error);
+
+                                        setStatus("Error generating prediction raster");
+                                        setRunning(false);
+                                        setProgress(0);
+
+                                    }
+
+                                }}
+                                disabled={running}
+                                className="w-full py-3 rounded-lg font-medium bg-purple-700 hover:bg-purple-800 text-white disabled:bg-slate-700"
+                            >
+                                Generate Prediction Map
+                            </button>
+
+                            {predictionComplete && (
+                                <button
+                                    onClick={() => window.open("http://127.0.0.1:8000/download-prediction")}
+                                    className="w-full py-3 rounded-lg font-medium bg-green-700 hover:bg-green-800 text-white"
+                                >
+                                    Download Prediction Raster
+                                </button>
+                            )}
+                        </div>
+                    )}
+
+                    {predictionComplete && (
+                        <div className="absolute top-4 left-4 z-20 bg-slate-900/95 border border-slate-700 rounded-lg p-3 shadow-xl">
+
+                            <h3 className="text-xs font-semibold text-blue-300 mb-2">
+                                Prediction Legend
+                            </h3>
+
+                            <img
+                                src={`http://127.0.0.1:8000/prediction-legend?ts=${Date.now()}`}
+                                className="w-48"
+                            />
+
+                        </div>
+                    )}
+
+                    {selectedTool === "field-model" && running && (
+                        <div className="absolute top-20 right-4 z-20 w-72 bg-slate-900/95 border border-slate-700 rounded-lg p-4 shadow-xl">
+                            <h3 className="text-sm font-semibold text-blue-300 mb-2">
+                                Prediction Progress
+                            </h3>
+
+                            <p className="text-xs text-slate-300 mb-3">
+                                {status}
+                            </p>
+
+                            <div className="w-full h-3 bg-slate-700 rounded overflow-hidden">
+                                <div
+                                    className="h-full bg-purple-500 transition-all duration-300"
+                                    style={{ width: `${progress}%` }}
+                                />
+                            </div>
+
+                            <div className="mt-2 text-right text-xs text-slate-400">
+                                {progress}%
+                            </div>
+                        </div>
+                    )}
 
                     {/* COVERAGE CURVE PANEL */}
                     {selectedTool === "sampling" && samplingComplete && (
