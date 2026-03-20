@@ -50,6 +50,15 @@ export default function ToolWorkspace() {
     const [modelComplete, setModelComplete] = useState(false);
     const [metrics, setMetrics] = useState<any>(null);
     const [predictionComplete, setPredictionComplete] = useState(false);
+    const [showCovariates, setShowCovariates] = useState(false);
+    const [covariates, setCovariates] = useState<{ name: string; description: string }[]>([]);
+    const [covariatesLoading, setCovariatesLoading] = useState(false);
+    const [workspaceTab, setWorkspaceTab] = useState<"map" | "details">("map");
+
+
+    useEffect(() => {
+        setWorkspaceTab("map");
+    }, [selectedTool]);
 
     useEffect(() => {
         if (map.current) return;
@@ -155,70 +164,105 @@ export default function ToolWorkspace() {
             return;
         }
 
+        setShowCovariates(false);
+        setCovariates([]);
+        setModelComplete(false);
+        setPredictionComplete(false);
+        setMetrics(null);
         setRunning(true);
-        setProgress(10);
-        setStatus("Uploading training data...");
+        setProgress(0);
+        setStatus("Starting model training...");
 
         try {
-
             const formData = new FormData();
-
             formData.append("csv", trainingCsv);
             formData.append("lat_column", latColumn);
             formData.append("lon_column", lonColumn);
             formData.append("response_column", responseColumn);
 
-            const response = await fetch("http://127.0.0.1:8000/train-field-model", {
+            const startRes = await fetch("http://127.0.0.1:8000/train-field-model", {
                 method: "POST",
                 body: formData
             });
 
-            const result = await response.json();
+            const startData = await startRes.json();
 
-            if (result.training_points && map.current) {
-                if (map.current.getSource("training-points")) {
-                    map.current.removeLayer("training-points");
-                    map.current.removeSource("training-points");
-                }
+            if (startData.status !== "started") {
+                throw new Error("Training process failed to start.");
+            }
 
-                map.current.addSource("training-points", {
-                    type: "geojson",
-                    data: result.training_points
-                });
+            const interval = setInterval(async () => {
+                try {
+                    const res = await fetch("http://127.0.0.1:8000/training-progress");
+                    const data = await res.json();
 
-                map.current.addLayer({
-                    id: "training-points",
-                    type: "circle",
-                    source: "training-points",
-                    paint: {
-                        "circle-radius": 4,
-                        "circle-color": "#f59e0b",
-                        "circle-stroke-color": "#ffffff",
-                        "circle-stroke-width": 1
+                    const pct = Math.round((data.progress ?? 0) * 100);
+                    setProgress(pct);
+
+                    if (data.status === "starting") {
+                        setStatus("Starting model training...");
+                    } else if (data.status === "building_training_table") {
+                        setStatus("Building training table...");
+                    } else if (data.status === "training_model") {
+                        setStatus("Training model...");
+                    } else if (data.status === "loading_outputs") {
+                        setStatus("Loading model outputs...");
+                    } else if (data.status === "error") {
+                        clearInterval(interval);
+                        setRunning(false);
+                        setStatus(data.message || "Training failed");
+                        setProgress(0);
+                        return;
+                    } else if (data.status === "complete") {
+                        clearInterval(interval);
+
+                        const resultRes = await fetch("http://127.0.0.1:8000/training-result");
+                        const result = await resultRes.json();
+
+                        if (result.training_points && map.current) {
+                            if (map.current.getSource("training-points")) {
+                                map.current.removeLayer("training-points");
+                                map.current.removeSource("training-points");
+                            }
+
+                            map.current.addSource("training-points", {
+                                type: "geojson",
+                                data: result.training_points
+                            });
+
+                            map.current.addLayer({
+                                id: "training-points",
+                                type: "circle",
+                                source: "training-points",
+                                paint: {
+                                    "circle-radius": 4,
+                                    "circle-color": "#f59e0b",
+                                    "circle-stroke-color": "#ffffff",
+                                    "circle-stroke-width": 1
+                                }
+                            });
+                        }
+
+                        setMetrics(result.metrics ?? null);
+                        setModelComplete(true);
+                        setRunning(false);
+                        setProgress(100);
+                        setStatus("Model training complete");
                     }
-                });
-            }
 
-            setProgress(100);
-            setStatus("Model training complete");
-            setModelComplete(true);
-
-            if (result.metrics) {
-                setMetrics(result.metrics);
-            }
+                } catch (error) {
+                    console.error("Training progress polling failed", error);
+                }
+            }, 1000);
 
         } catch (error) {
-
             console.error(error);
             setStatus("Error contacting modeling API");
             setProgress(0);
-
+            setRunning(false);
         }
-
-        setRunning(false);
     };
 
-    /* ADD THIS RIGHT HERE */
 
     const uploadAOI = async (file: File) => {
 
@@ -321,7 +365,7 @@ export default function ToolWorkspace() {
             type: "raster",
             source: "prediction",
             paint: {
-                "raster-opacity": 0.72
+                "raster-opacity": 0.9
             }
         });
 
@@ -334,6 +378,23 @@ export default function ToolWorkspace() {
             ],
             { padding: 40, duration: 1000 }
         );
+    };
+
+
+    const loadCovariates = async () => {
+        try {
+            setCovariatesLoading(true);
+
+            const res = await fetch("http://127.0.0.1:8000/model-covariates");
+            const data = await res.json();
+
+            setCovariates(data.covariates ?? []);
+        } catch (error) {
+            console.error("Failed to load covariates", error);
+            setCovariates([]);
+        } finally {
+            setCovariatesLoading(false);
+        }
     };
 
 
@@ -631,261 +692,444 @@ export default function ToolWorkspace() {
                         : "Model training outputs and predicted vegetation maps will appear here."}
                 </p>
 
+                {/* TAB BUTTONS */}
+                {selectedTool === "field-model" && (
+                    <div className="mb-4 flex items-center gap-2">
+                        <button
+                            onClick={() => setWorkspaceTab("map")}
+                            className={`px-4 py-2 rounded-lg text-sm font-medium transition ${workspaceTab === "map"
+                                ? "bg-blue-700 text-white"
+                                : "bg-slate-800 text-slate-300 hover:bg-slate-700"
+                                }`}
+                        >
+                            Map View
+                        </button>
+
+                        <button
+                            onClick={() => setWorkspaceTab("details")}
+                            className={`px-4 py-2 rounded-lg text-sm font-medium transition ${workspaceTab === "details"
+                                ? "bg-blue-700 text-white"
+                                : "bg-slate-800 text-slate-300 hover:bg-slate-700"
+                                }`}
+                        >
+                            Model Details
+                        </button>
+                    </div>
+                )}
+
                 {/* MAP CANVAS */}
-                <div className="relative flex-1 min-h-[500px] rounded-xl border border-slate-700 overflow-hidden shadow-[0_0_60px_rgba(59,130,246,0.15)]">
+                {(selectedTool !== "field-model" || workspaceTab === "map") && (
+                    <div className="relative flex-1 min-h-[500px] rounded-xl border border-slate-700 overflow-hidden shadow-[0_0_60px_rgba(59,130,246,0.15)]">
 
-                    {/* MAP */}
-                    <div ref={mapContainer} className="w-full h-full" />
+                        {/* MAP */}
+                        <div ref={mapContainer} className="w-full h-full" />
 
-                    {/* MODEL DIAGNOSTICS */}
-
-                    {modelComplete && metrics && selectedTool === "field-model" && (
-                        <div className="absolute bottom-4 left-4 z-20 grid grid-cols-1 md:grid-cols-2 gap-4 max-w-5xl">
-                            <div className="bg-slate-900/95 border border-slate-700 rounded-lg p-4 min-w-[260px]">
-                                <h3 className="text-sm font-semibold text-blue-300 mb-3">
-                                    Model Performance
-                                </h3>
-
-                                <div className="grid grid-cols-3 gap-4 text-center">
-                                    <div>
-                                        <div className="text-xs text-slate-400">R²</div>
-                                        <div className="text-lg font-semibold text-green-400">
-                                            {typeof metrics.r2 === "number" ? metrics.r2.toFixed(3) : "NA"}
-                                        </div>
-                                    </div>
-
-                                    <div>
-                                        <div className="text-xs text-slate-400">RMSE</div>
-                                        <div className="text-lg font-semibold text-blue-400">
-                                            {typeof metrics.rmse === "number" ? metrics.rmse.toFixed(3) : "NA"}
-                                        </div>
-                                    </div>
-
-                                    <div>
-                                        <div className="text-xs text-slate-400">MAE</div>
-                                        <div className="text-lg font-semibold text-purple-400">
-                                            {typeof metrics.mae === "number" ? metrics.mae.toFixed(3) : "NA"}
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <div className="mt-3 text-xs text-slate-400">
-                                    Response: <span className="text-slate-200">{metrics.response_column}</span>
-                                </div>
-                            </div>
-
-                            {metrics.var_importance?.length > 0 && (
-                                <div className="bg-slate-900/95 border border-slate-700 rounded-lg p-4 w-[420px]">
-                                    <h3 className="text-sm font-semibold text-blue-300 mb-3">
-                                        Variable Importance
+                        {/* COVARIATES PANEL */}
+                        {selectedTool === "field-model" && showCovariates && (
+                            <div className="absolute top-4 left-4 z-20 w-[380px] max-h-[420px] overflow-y-auto bg-slate-900/95 border border-slate-700 rounded-lg p-4 shadow-xl">
+                                <div className="flex items-center justify-between mb-3">
+                                    <h3 className="text-sm font-semibold text-blue-300">
+                                        Raster Covariates
                                     </h3>
 
-                                    <ResponsiveContainer width="100%" height={220}>
-                                        <BarChart data={metrics.var_importance} layout="vertical">
-                                            <XAxis type="number" stroke="#94a3b8" tick={{ fontSize: 10 }} />
-                                            <YAxis
-                                                type="category"
-                                                dataKey="variable"
-                                                stroke="#94a3b8"
-                                                tick={{ fontSize: 10 }}
-                                                width={120}
-                                            />
-                                            <Tooltip
-                                                contentStyle={{
-                                                    background: "#0f172a",
-                                                    border: "1px solid #334155"
-                                                }}
-                                            />
-                                            <Bar dataKey="relative_importance" fill="#3b82f6" />
-                                        </BarChart>
-                                    </ResponsiveContainer>
+                                    <button
+                                        onClick={() => setShowCovariates(false)}
+                                        className="text-xs text-slate-400 hover:text-slate-200"
+                                    >
+                                        Close
+                                    </button>
                                 </div>
-                            )}
-                        </div>
-                    )}
 
-                    {selectedTool === "field-model" && modelComplete && (
-                        <div className="absolute top-4 right-4 z-20 flex flex-col gap-3 w-72">
-                            <button
-                                onClick={async () => {
+                                <p className="text-xs text-slate-400 mb-4">
+                                    These raster predictors were used by the trained field-based vegetation model.
+                                </p>
 
-                                    try {
+                                {covariatesLoading ? (
+                                    <div className="text-xs text-slate-300">Loading covariates...</div>
+                                ) : covariates.length === 0 ? (
+                                    <div className="text-xs text-slate-400">
+                                        No covariate information available yet.
+                                    </div>
+                                ) : (
+                                    <div className="space-y-3">
+                                        {covariates.map((item) => (
+                                            <div
+                                                key={item.name}
+                                                className="rounded-md border border-slate-800 bg-slate-950/60 p-3"
+                                            >
+                                                <div className="text-sm font-medium text-slate-100">
+                                                    {item.name}
+                                                </div>
+                                                <div className="text-xs text-slate-400 mt-1 leading-relaxed">
+                                                    {item.description}
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                        )}
 
-                                        setRunning(true);
-                                        setStatus("Generating prediction raster...");
-                                        setProgress(0);
+                        {/* MODEL DIAGNOSTICS */}
+                        {modelComplete && metrics && selectedTool === "field-model" && (
+                            <div className="absolute bottom-4 left-4 z-20 grid grid-cols-1 md:grid-cols-2 gap-4 max-w-5xl">
+                                <div className="bg-slate-900/95 border border-slate-700 rounded-lg p-4 min-w-[260px]">
+                                    <h3 className="text-sm font-semibold text-blue-300 mb-3">
+                                        Model Performance
+                                    </h3>
 
-                                        // start prediction (don't await yet)
-                                        const predictionRequest = fetch("http://127.0.0.1:8000/predict-raster", {
-                                            method: "POST"
-                                        });
-                                        // start polling backend progress
-                                        const interval = setInterval(async () => {
+                                    <div className="grid grid-cols-3 gap-4 text-center">
+                                        <div>
+                                            <div className="text-xs text-slate-400">R²</div>
+                                            <div className="text-lg font-semibold text-green-400">
+                                                {typeof metrics.r2 === "number" ? metrics.r2.toFixed(3) : "NA"}
+                                            </div>
+                                        </div>
 
-                                            try {
+                                        <div>
+                                            <div className="text-xs text-slate-400">RMSE</div>
+                                            <div className="text-lg font-semibold text-blue-400">
+                                                {typeof metrics.rmse === "number" ? metrics.rmse.toFixed(3) : "NA"}
+                                            </div>
+                                        </div>
 
-                                                const res = await fetch("http://127.0.0.1:8000/prediction-progress");
-                                                const data = await res.json();
+                                        <div>
+                                            <div className="text-xs text-slate-400">MAE</div>
+                                            <div className="text-lg font-semibold text-purple-400">
+                                                {typeof metrics.mae === "number" ? metrics.mae.toFixed(3) : "NA"}
+                                            </div>
+                                        </div>
+                                    </div>
 
-                                                const pct = Math.round((data.progress ?? 0) * 100);
-                                                setProgress(pct);
+                                    <div className="mt-3 text-xs text-slate-400">
+                                        Response: <span className="text-slate-200">{metrics.response_column}</span>
+                                    </div>
+                                </div>
 
-                                                if (data.status === "starting") {
-                                                    setStatus("Preparing prediction...");
-                                                } else if (data.status === "predicting") {
-                                                    setStatus(`Predicting tiles (${data.tiles_done}/${data.tiles_total})`);
-                                                } else if (data.status === "writing_raster") {
-                                                    setStatus("Writing raster...");
-                                                } else if (data.status === "building_cog") {
-                                                    setStatus("Building COG for map display...");
-                                                } else if (data.status === "complete") {
-                                                    setStatus("Prediction complete");
-                                                }
+                                {metrics.var_importance?.length > 0 && (
+                                    <div className="bg-slate-900/95 border border-slate-700 rounded-lg p-4 w-[420px]">
+                                        <h3 className="text-sm font-semibold text-blue-300 mb-3">
+                                            Variable Importance
+                                        </h3>
 
-                                                if (data.status === "complete") {
-                                                    clearInterval(interval);
+                                        <ResponsiveContainer width="100%" height={220}>
+                                            <BarChart data={metrics.var_importance} layout="vertical">
+                                                <XAxis type="number" stroke="#94a3b8" tick={{ fontSize: 10 }} />
+                                                <YAxis
+                                                    type="category"
+                                                    dataKey="variable"
+                                                    stroke="#94a3b8"
+                                                    tick={{ fontSize: 10 }}
+                                                    width={120}
+                                                />
+                                                <Tooltip
+                                                    contentStyle={{
+                                                        background: "#0f172a",
+                                                        border: "1px solid #334155"
+                                                    }}
+                                                />
+                                                <Bar dataKey="relative_importance" fill="#3b82f6" />
+                                            </BarChart>
+                                        </ResponsiveContainer>
+                                    </div>
+                                )}
+                            </div>
+                        )}
 
-                                                    setRunning(false);
-                                                    setPredictionComplete(true);
-                                                    setProgress(100);
-                                                    setStatus("Prediction raster complete");
+                        {selectedTool === "field-model" && modelComplete && (
+                            <div className="absolute top-4 right-4 z-20 flex flex-col gap-3 w-72">
 
-                                                    await loadPredictionLayer();
-                                                }
-
-                                            } catch (err) {
-
-                                                console.error("Progress polling failed", err);
-
-                                            }
-
-                                        }, 1000);
-
-                                    } catch (error) {
-
-                                        console.error(error);
-
-                                        setStatus("Error generating prediction raster");
-                                        setRunning(false);
-                                        setProgress(0);
-
-                                    }
-
-                                }}
-                                disabled={running}
-                                className="w-full py-3 rounded-lg font-medium bg-purple-700 hover:bg-purple-800 text-white disabled:bg-slate-700"
-                            >
-                                Generate Prediction Map
-                            </button>
-
-                            {predictionComplete && (
                                 <button
-                                    onClick={() => window.open("http://127.0.0.1:8000/download-prediction")}
-                                    className="w-full py-3 rounded-lg font-medium bg-green-700 hover:bg-green-800 text-white"
-                                >
-                                    Download Prediction Raster
-                                </button>
-                            )}
-                        </div>
-                    )}
-
-                    {predictionComplete && (
-                        <div className="absolute top-4 left-4 z-20 bg-slate-900/95 border border-slate-700 rounded-lg p-3 shadow-xl">
-
-                            <h3 className="text-xs font-semibold text-blue-300 mb-2">
-                                Prediction Legend
-                            </h3>
-
-                            <img
-                                src={`http://127.0.0.1:8000/prediction-legend?ts=${Date.now()}`}
-                                className="w-48"
-                            />
-
-                        </div>
-                    )}
-
-                    {selectedTool === "field-model" && running && (
-                        <div className="absolute top-20 right-4 z-20 w-72 bg-slate-900/95 border border-slate-700 rounded-lg p-4 shadow-xl">
-                            <h3 className="text-sm font-semibold text-blue-300 mb-2">
-                                Prediction Progress
-                            </h3>
-
-                            <p className="text-xs text-slate-300 mb-3">
-                                {status}
-                            </p>
-
-                            <div className="w-full h-3 bg-slate-700 rounded overflow-hidden">
-                                <div
-                                    className="h-full bg-purple-500 transition-all duration-300"
-                                    style={{ width: `${progress}%` }}
-                                />
-                            </div>
-
-                            <div className="mt-2 text-right text-xs text-slate-400">
-                                {progress}%
-                            </div>
-                        </div>
-                    )}
-
-                    {/* COVERAGE CURVE PANEL */}
-                    {selectedTool === "sampling" && samplingComplete && (
-
-                        <div className="absolute bottom-4 left-4 w-72 bg-slate-900/95 border border-slate-700 rounded-lg p-3 shadow-xl">
-
-                            <h3 className="text-xs font-semibold text-blue-300 mb-2">
-                                Environmental Coverage
-                            </h3>
-
-                            <ResponsiveContainer width="100%" height={160}>
-                                <LineChart data={coverageCurve}>
-                                    <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-
-                                    <XAxis
-                                        dataKey="n"
-                                        stroke="#94a3b8"
-                                        tick={{ fontSize: 10 }}
-                                    />
-
-                                    <YAxis
-                                        stroke="#94a3b8"
-                                        domain={[0, 1]}
-                                        tickFormatter={(v) => `${Math.round(v * 100)}%`}
-                                        tick={{ fontSize: 10 }}
-                                    />
-
-                                    <Tooltip
-                                        formatter={(value) =>
-                                            typeof value === "number"
-                                                ? `${(value * 100).toFixed(1)}%`
-                                                : value
+                                    onClick={async () => {
+                                        if (!showCovariates && covariates.length === 0) {
+                                            await loadCovariates();
                                         }
-                                        contentStyle={{
-                                            background: "#0f172a",
-                                            border: "1px solid #334155"
+                                        setShowCovariates(!showCovariates);
+                                    }}
+                                    className="w-full py-3 rounded-lg font-medium bg-slate-800 hover:bg-slate-700 text-white border border-slate-600"
+                                >
+                                    {showCovariates ? "Hide Covariate Info" : "Show Covariate Info"}
+                                </button>
+
+                                {!predictionComplete && (
+                                    <button
+                                        onClick={async () => {
+                                            try {
+                                                setRunning(true);
+                                                setPredictionComplete(false);
+                                                setStatus("Generating prediction raster...");
+                                                setProgress(0);
+
+                                                const startRes = await fetch("http://127.0.0.1:8000/predict-raster", {
+                                                    method: "POST"
+                                                });
+
+                                                const startData = await startRes.json();
+
+                                                if (startData.status !== "started") {
+                                                    throw new Error("Prediction process failed to start.");
+                                                }
+
+                                                const interval = setInterval(async () => {
+                                                    try {
+                                                        const res = await fetch("http://127.0.0.1:8000/prediction-progress");
+                                                        const data = await res.json();
+
+                                                        const pct = Math.round((data.progress ?? 0) * 100);
+                                                        setProgress(pct);
+
+                                                        if (data.status === "starting") {
+                                                            setStatus("Preparing prediction...");
+                                                        } else if (data.status === "predicting") {
+                                                            setStatus(`Predicting tiles (${data.tiles_done}/${data.tiles_total})`);
+                                                        } else if (data.status === "writing_raster") {
+                                                            setStatus("Writing raster...");
+                                                        } else if (data.status === "building_cog") {
+                                                            setStatus("Building COG for map display...");
+                                                        } else if (data.status === "complete") {
+                                                            setStatus("Prediction complete");
+                                                        }
+
+                                                        if (data.status === "complete") {
+                                                            clearInterval(interval);
+
+                                                            setRunning(false);
+                                                            setPredictionComplete(true);
+                                                            setProgress(100);
+                                                            setStatus("Prediction raster complete");
+
+                                                            await loadPredictionLayer();
+                                                        }
+                                                    } catch (err) {
+                                                        console.error("Progress polling failed", err);
+                                                    }
+                                                }, 1000);
+
+                                            } catch (error) {
+                                                console.error(error);
+                                                setStatus("Error generating prediction raster");
+                                                setRunning(false);
+                                                setProgress(0);
+                                            }
                                         }}
+                                        disabled={running}
+                                        className="w-full py-3 rounded-lg font-medium bg-purple-700 hover:bg-purple-800 text-white disabled:bg-slate-700"
+                                    >
+                                        Generate Prediction Map
+                                    </button>
+                                )}
+
+                                {predictionComplete && (
+                                    <button
+                                        onClick={() => window.open("http://127.0.0.1:8000/download-prediction")}
+                                        className="w-full py-3 rounded-lg font-medium bg-green-700 hover:bg-green-800 text-white"
+                                    >
+                                        Download Prediction Raster
+                                    </button>
+                                )}
+                            </div>
+                        )}
+
+                        {predictionComplete && (
+                            <div className="absolute top-4 left-4 z-20 bg-slate-900/95 border border-slate-700 rounded-lg p-3 shadow-xl">
+
+                                <h3 className="text-xs font-semibold text-blue-300 mb-2">
+                                    Prediction Legend
+                                </h3>
+
+                                <img
+                                    src={`http://127.0.0.1:8000/prediction-legend?ts=${Date.now()}`}
+                                    className="w-48"
+                                />
+
+                            </div>
+                        )}
+
+                        {selectedTool === "field-model" && running && (
+                            <div className="absolute top-20 right-4 z-20 w-72 bg-slate-900/95 border border-slate-700 rounded-lg p-4 shadow-xl">
+                                <h3 className="text-sm font-semibold text-blue-300 mb-2">
+                                    Prediction Progress
+                                </h3>
+
+                                <p className="text-xs text-slate-300 mb-3">
+                                    {status}
+                                </p>
+
+                                <div className="w-full h-3 bg-slate-700 rounded overflow-hidden">
+                                    <div
+                                        className="h-full bg-purple-500 transition-all duration-300"
+                                        style={{ width: `${progress}%` }}
                                     />
+                                </div>
 
-                                    <ReferenceLine y={0.95} stroke="#22c55e" strokeDasharray="3 3" />
+                                <div className="mt-2 text-right text-xs text-slate-400">
+                                    {progress}%
+                                </div>
+                            </div>
+                        )}
 
-                                    <Line
-                                        type="monotone"
-                                        dataKey="p_covered"
-                                        stroke="#3b82f6"
-                                        strokeWidth={2}
-                                        dot={false}
-                                    />
-                                </LineChart>
-                            </ResponsiveContainer>
+                        {/* COVERAGE CURVE PANEL */}
+                        {selectedTool === "sampling" && samplingComplete && (
+                            <div className="absolute bottom-4 left-4 w-72 bg-slate-900/95 border border-slate-700 rounded-lg p-3 shadow-xl">
 
+                                <h3 className="text-xs font-semibold text-blue-300 mb-2">
+                                    Environmental Coverage
+                                </h3>
+
+                                <ResponsiveContainer width="100%" height={160}>
+                                    <LineChart data={coverageCurve}>
+                                        <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+
+                                        <XAxis
+                                            dataKey="n"
+                                            stroke="#94a3b8"
+                                            tick={{ fontSize: 10 }}
+                                        />
+
+                                        <YAxis
+                                            stroke="#94a3b8"
+                                            domain={[0, 1]}
+                                            tickFormatter={(v) => `${Math.round(v * 100)}%`}
+                                            tick={{ fontSize: 10 }}
+                                        />
+
+                                        <Tooltip
+                                            formatter={(value) =>
+                                                typeof value === "number"
+                                                    ? `${(value * 100).toFixed(1)}%`
+                                                    : value
+                                            }
+                                            contentStyle={{
+                                                background: "#0f172a",
+                                                border: "1px solid #334155"
+                                            }}
+                                        />
+
+                                        <ReferenceLine y={0.95} stroke="#22c55e" strokeDasharray="3 3" />
+
+                                        <Line
+                                            type="monotone"
+                                            dataKey="p_covered"
+                                            stroke="#3b82f6"
+                                            strokeWidth={2}
+                                            dot={false}
+                                        />
+                                    </LineChart>
+                                </ResponsiveContainer>
+
+                            </div>
+                        )}
+
+                    </div>
+                )}
+
+                {/* MODEL DETAILS PANEL */}
+                {selectedTool === "field-model" && workspaceTab === "details" && (
+                    <div className="flex-1 min-h-[500px] rounded-xl border border-slate-700 bg-slate-900/95 p-6 overflow-y-auto shadow-[0_0_60px_rgba(59,130,246,0.10)]">
+                        <div className="max-w-4xl space-y-6">
+                            <div>
+                                <h2 className="text-xl font-semibold text-slate-100 mb-2">
+                                    Field-Based Vegetation Model Details
+                                </h2>
+                                <p className="text-sm text-slate-300 leading-relaxed">
+                                    This tool uses field observations and landscape raster covariates to train a spatial model
+                                    that predicts vegetation cover across the uploaded area of interest. The goal is to extend
+                                    plot-level measurements into a continuous map while preserving relationships with terrain,
+                                    soils, climate, and other environmental variables.
+                                </p>
+                            </div>
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div className="rounded-xl border border-slate-700 bg-slate-950/60 p-4">
+                                    <h3 className="text-sm font-semibold text-blue-300 mb-2">Required Inputs</h3>
+                                    <ul className="text-sm text-slate-300 space-y-2">
+                                        <li><span className="text-slate-100 font-medium">AOI shapefile:</span> defines the prediction boundary.</li>
+                                        <li><span className="text-slate-100 font-medium">Field CSV:</span> includes plot coordinates and a response variable.</li>
+                                        <li><span className="text-slate-100 font-medium">Latitude / longitude columns:</span> used to map field locations.</li>
+                                        <li><span className="text-slate-100 font-medium">Response column:</span> the vegetation variable being modeled.</li>
+                                    </ul>
+                                </div>
+
+                                <div className="rounded-xl border border-slate-700 bg-slate-950/60 p-4">
+                                    <h3 className="text-sm font-semibold text-blue-300 mb-2">Outputs</h3>
+                                    <ul className="text-sm text-slate-300 space-y-2">
+                                        <li>Mapped training points</li>
+                                        <li>Model performance metrics</li>
+                                        <li>Variable importance</li>
+                                        <li>Prediction raster clipped to the AOI</li>
+                                        <li>Downloadable GeoTIFF output</li>
+                                    </ul>
+                                </div>
+                            </div>
+
+                            <div className="rounded-xl border border-slate-700 bg-slate-950/60 p-4">
+                                <h3 className="text-sm font-semibold text-blue-300 mb-3">How the workflow operates</h3>
+
+                                <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
+                                    {[
+                                        "Upload AOI",
+                                        "Upload field data",
+                                        "Extract raster values to plots",
+                                        "Train model",
+                                        "Predict across the AOI"
+                                    ].map((step, i) => (
+                                        <div key={step} className="rounded-lg border border-slate-800 bg-slate-900 p-3">
+                                            <div className="text-xs text-blue-400 mb-1">Step {i + 1}</div>
+                                            <div className="text-sm text-slate-200">{step}</div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+
+                            <div className="rounded-xl border border-slate-700 bg-slate-950/60 p-4">
+                                <h3 className="text-sm font-semibold text-blue-300 mb-2">How to interpret the metrics</h3>
+                                <div className="space-y-2 text-sm text-slate-300">
+                                    <p><span className="text-slate-100 font-medium">R²:</span> indicates how much variation in the response is explained by the model.</p>
+                                    <p><span className="text-slate-100 font-medium">RMSE:</span> summarizes the typical size of prediction errors, with larger errors weighted more strongly.</p>
+                                    <p><span className="text-slate-100 font-medium">MAE:</span> summarizes the average absolute prediction error and is often easier to interpret in the units of the response variable.</p>
+                                    <p><span className="text-slate-100 font-medium">Variable importance:</span> shows which predictors contributed most strongly to the fitted model.</p>
+                                </div>
+                            </div>
+
+                            <div className="rounded-xl border border-amber-700/40 bg-amber-950/20 p-4">
+                                <h3 className="text-sm font-semibold text-amber-300 mb-2">Interpretation and limitations</h3>
+                                <div className="space-y-2 text-sm text-slate-300">
+                                    <p>Predictions are strongest where field plots represent the environmental conditions found across the AOI.</p>
+                                    <p>Predictions may be less reliable in poorly sampled environments or where raster covariates do not capture important ecological drivers.</p>
+                                    <p>The output raster is a modeled estimate of vegetation cover, not a direct measurement at every pixel.</p>
+                                    <p>Users should interpret the map together with field knowledge, model metrics, and the spatial distribution of training points.</p>
+                                </div>
+                            </div>
+
+                            <div className="rounded-xl border border-slate-700 bg-slate-950/60 p-4">
+                                <div className="flex items-center justify-between mb-3">
+                                    <h3 className="text-sm font-semibold text-blue-300">Raster covariates</h3>
+                                    <button
+                                        onClick={async () => {
+                                            if (covariates.length === 0) {
+                                                await loadCovariates();
+                                            }
+                                            setShowCovariates(true);
+                                            setWorkspaceTab("map");
+                                        }}
+                                        className="px-3 py-1.5 rounded-md bg-slate-800 text-slate-200 text-xs hover:bg-slate-700"
+                                    >
+                                        Open covariate list on map
+                                    </button>
+                                </div>
+
+                                <p className="text-sm text-slate-300 leading-relaxed">
+                                    The model uses raster covariates that describe landscape conditions such as terrain, soils,
+                                    climate, and vegetation-related predictors. These variables are sampled at field plot locations
+                                    during training and then used to predict the response continuously across the AOI.
+                                </p>
+                            </div>
                         </div>
-
-                    )}
-
-                </div>
-
+                    </div>
+                )}
 
             </section>
 
-        </main >
+        </main>
     );
 }

@@ -163,8 +163,10 @@ async def download_sampling():
         media_type="application/zip",
         filename="sampling_points.zip"
     )
+ 
+ 
     
-
+TRAIN_PROGRESS_JSON = "outputs/training_progress.json"
 
 @app.post("/train-field-model")
 async def train_field_model(
@@ -173,9 +175,7 @@ async def train_field_model(
     lon_column: str = Form(...),
     response_column: str = Form(...)
 ):
-    import pandas as pd
-    import geopandas as gpd
-    from shapely.geometry import Point
+    import sys
 
     upload_dir = "uploads"
     os.makedirs(upload_dir, exist_ok=True)
@@ -186,94 +186,87 @@ async def train_field_model(
     with open(csv_path, "wb") as buffer:
         shutil.copyfileobj(csv.file, buffer)
 
-    print("Received CSV:", csv_path)
-    print("Lat column:", lat_column)
-    print("Lon column:", lon_column)
-    print("Response column:", response_column)
+    with open("outputs/training_progress.json", "w") as f:
+        json.dump({
+            "progress": 0.0,
+            "status": "starting"
+        }, f)
 
-    # Build training table
-    subprocess.run([
-        "python",
-        "build_training_data.py",
+    subprocess.Popen([
+        sys.executable,
+        "run_training_pipeline.py",
         "uploads/uploaded_aoi.shp",
         csv_path,
         lat_column,
-        lon_column
-    ], check=True)
-
-    print("Training table built.")
-
-    # Train model
-    subprocess.run([
-        "python",
-        "train_h2o_model.py",
+        lon_column,
         response_column
-    ], check=True)
-
-    print("Model training complete.")
-
-    # Load model metrics
-    metrics_path = "outputs/model_metrics.json"
-    metrics = None
-    if os.path.exists(metrics_path):
-        with open(metrics_path) as f:
-            metrics = json.load(f)
-
-    # Load original CSV and convert points for map display
-    df = pd.read_csv(csv_path)
-
-    if lat_column not in df.columns or lon_column not in df.columns:
-        return {
-            "status": "error",
-            "message": f"CSV missing lat/lon columns: {lat_column}, {lon_column}"
-        }
-
-    gdf = gpd.GeoDataFrame(
-        df.copy(),
-        geometry=gpd.points_from_xy(df[lon_column], df[lat_column]),
-        crs="EPSG:4326"
-    )
-
-    training_points_geojson = json.loads(gdf.to_json())
+    ])
 
     return {
-        "status": "model_trained",
-        "metrics": metrics,
-        "training_points": training_points_geojson
+        "status": "started"
     }
+    
+@app.get("/training-progress")
+def training_progress():
+
+    path = "outputs/training_progress.json"
+
+    if not os.path.exists(path):
+        return {
+            "progress": 0,
+            "status": "starting"
+        }
+
+    try:
+        with open(path) as f:
+            return json.load(f)
+    except PermissionError:
+        return {"progress": 0}
+    
+    
+@app.get("/training-result")
+def training_result():
+
+    path = "outputs/training_result.json"
+
+    if not os.path.exists(path):
+        return {"status": "not_ready"}
+
+    with open(path) as f:
+        return json.load(f)
     
     
 @app.post("/predict-raster")
-async def predict_raster():
+def predict_raster():
 
     import subprocess
     import sys
 
-    result = subprocess.run(
+    subprocess.Popen(
         [sys.executable, "predict_raster.py"],
-        capture_output=True,
-        text=True
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL
     )
 
-    print(result.stdout)
-    print(result.stderr)
-
-    if result.returncode != 0:
-        return {"status": "error", "stderr": result.stderr}
-
     return {
-    "status": "success",
-    "raster": "outputs/prediction_cog.tif"
+        "status": "started"
     }
     
+
+from fastapi import HTTPException
 
 @app.get("/download-prediction")
 async def download_prediction():
 
+    path = "outputs/prediction_cog.tif"
+
+    if not os.path.exists(path):
+        raise HTTPException(status_code=404, detail="Prediction raster not found.")
+
     return FileResponse(
-        "outputs/prediction.tif",
+        path,
         media_type="image/tiff",
-        filename="prediction.tif"
+        filename="prediction_cog.tif"
     )
     
 @app.get("/prediction-progress")
@@ -326,21 +319,51 @@ def prediction_cog():
 def prediction_tile(z: int, x: int, y: int):
 
     path = "outputs/prediction_cog.tif"
+    progress_path = "outputs/prediction_progress.json"
 
     if not os.path.exists(path):
         return Response(status_code=404)
 
+    vmin, vmax = 0.0, 100.0
+    nodata_value = -9999.0
+
+    if os.path.exists(progress_path):
+        try:
+            with open(progress_path) as f:
+                prog = json.load(f)
+                stretch = prog.get("stretch", {})
+                vmin = float(stretch.get("vmin", 0.0))
+                vmax = float(stretch.get("vmax", 100.0))
+        except Exception:
+            pass
+
+    if vmax <= vmin:
+        vmax = vmin + 1.0
+
     try:
         with Reader(path) as src:
-
             img = src.tile(x, y, z)
 
-            data = img.data[0]
-            mask = img.mask
+            data = img.data[0].astype("float32")
+
+            # force transparency outside AOI / nodata areas
+            valid = np.isfinite(data) & (data != nodata_value)
+
+            if img.mask is not None:
+                valid = valid & (img.mask > 0)
+
+            alpha_mask = np.where(valid, 255, 0).astype("uint8")
+
+            stretched = np.zeros_like(data, dtype=np.uint8)
+            stretched[valid] = np.clip(
+                ((data[valid] - vmin) / (vmax - vmin)) * 254 + 1,
+                1,
+                255
+            ).astype(np.uint8)
 
             rendered = render(
-                data,
-                mask=mask,
+                stretched,
+                mask=alpha_mask,
                 colormap=cmap.get("viridis")
             )
 
@@ -350,6 +373,69 @@ def prediction_tile(z: int, x: int, y: int):
         )
 
     except TileOutsideBounds:
-        # Mapbox requested tile outside raster bounds
         return Response(status_code=204)
+    
+    
+@app.get("/model-covariates")
+def model_covariates():
+
+    metrics_path = "outputs/model_metrics.json"
+
+    if not os.path.exists(metrics_path):
+        return {"covariates": []}
+
+    with open(metrics_path) as f:
+        metrics = json.load(f)
+
+    predictors = metrics.get("predictors", [])
+
+    # Human-readable descriptions
+    description_lookup = {
+        "elevation": "Terrain elevation, which often influences temperature, moisture, and vegetation distribution.",
+        "slope": "Terrain steepness derived from elevation data.",
+        "aspect": "Compass direction a slope faces, which can influence solar exposure and drying.",
+        "heat_load": "A derived terrain variable representing potential solar heating.",
+        "tpi": "Topographic Position Index, which indicates whether a location is on a ridge, slope, or valley.",
+        "tri": "Terrain Ruggedness Index, a measure of local terrain roughness.",
+        "ppt": "Precipitation-related covariate representing moisture inputs.",
+        "precip": "Precipitation-related covariate representing moisture inputs.",
+        "tmean": "Average temperature covariate.",
+        "tmin": "Minimum temperature covariate.",
+        "tmax": "Maximum temperature covariate.",
+        "ndvi": "Vegetation greenness index derived from remotely sensed imagery.",
+        "evi": "Enhanced Vegetation Index derived from remotely sensed imagery.",
+        "soil_texture": "Soil texture-related covariate influencing water holding capacity and vegetation.",
+        "sand": "Percent sand content in the soil.",
+        "silt": "Percent silt content in the soil.",
+        "clay": "Percent clay content in the soil.",
+        "awc": "Available water capacity of the soil.",
+        "ec": "Electrical conductivity, often related to salinity or soil chemistry.",
+        "ph": "Soil pH.",
+        "rap": "Rangeland Analysis Platform vegetation-related covariate.",
+        "nlcd": "National Land Cover Database-based covariate.",
+        "evt": "LANDFIRE Existing Vegetation Type covariate."
+    }
+
+    def get_description(name: str) -> str:
+        key = name.lower()
+
+        if key in description_lookup:
+            return description_lookup[key]
+
+        # partial matching fallback
+        for known_key, desc in description_lookup.items():
+            if known_key in key:
+                return desc
+
+        return "Raster predictor used in the trained model."
+
+    covariates = [
+        {
+            "name": p,
+            "description": get_description(p)
+        }
+        for p in predictors
+    ]
+
+    return {"covariates": covariates}
     

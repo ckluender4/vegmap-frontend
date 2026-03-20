@@ -102,8 +102,8 @@ with rasterio.open(STACK) as src:
         "width": cols,
         "transform": transform,
         "count": 1,
-        "dtype": "uint8",
-        "nodata": 0,
+        "dtype": "float32",
+        "nodata": -9999.0,
         "compress": "LZW",
         "tiled": True,
         "blockxsize": 512,
@@ -184,12 +184,17 @@ for y in range(0, rows, tile):
 # -----------------------------
 
 # convert predictions to 0–100 scale
-prediction = np.nan_to_num(prediction, nan=0)
+prediction = np.clip(prediction, 0, 100).astype("float32")
 
-vmin = float(np.nanmin(prediction))
-vmax = float(np.nanmax(prediction))
+valid_mask = np.isfinite(prediction)
+if valid_mask.any():
+    vmin = float(np.nanmin(prediction[valid_mask]))
+    vmax = float(np.nanmax(prediction[valid_mask]))
+else:
+    vmin, vmax = 0.0, 100.0
 
-prediction = np.clip(prediction, 0, 100).astype("uint8")
+prediction_out = prediction.copy()
+prediction_out[~valid_mask] = -9999.0
 
 with open(PROGRESS_JSON, "w") as f:
     json.dump({
@@ -267,6 +272,10 @@ with open(PROGRESS_JSON, "w") as f:
             "south": bounds_wgs84[1],
             "east": bounds_wgs84[2],
             "north": bounds_wgs84[3]
+        },
+        "stretch": {
+            "vmin": vmin,
+            "vmax": vmax
         },
         "cog": COG_OUTPUT
     }, f)

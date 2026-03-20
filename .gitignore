@@ -21,11 +21,12 @@ dist/
 __pycache__/
 *.pyc
 *.pyo
-__pycache__/
+*.pyd
 
 # virtual environments
 venv/
-.env/
+.venv/
+env/
 
 # -----------------------------
 # OS
@@ -55,11 +56,15 @@ Thumbs.db
 *.prj
 *.gpkg
 *.zip
+*.cpg
 
 # -----------------------------
 # R outputs
 # -----------------------------
 Rplots.pdf
+.Rhistory
+.RData
+.Rproj.user/
 
 # -----------------------------
 # App generated files
@@ -67,6 +72,9 @@ Rplots.pdf
 backend/models/
 backend/outputs/
 backend/uploads/
-sampling_export/
-sampling_output.json
-sampling_points.geojson
+backend/sampling_export/
+backend/sampling_output.json
+backend/sampling_points.geojson
+backend/training_result.json
+backend/training_progress.json
+backend/prediction_progress.json
