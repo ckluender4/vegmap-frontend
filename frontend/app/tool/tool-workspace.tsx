@@ -27,7 +27,13 @@ export default function ToolWorkspace() {
         mode === "sampling" ? "sampling" :
             mode === "field-model" ? "field-model" :
                 mode === "vegetation" ? "vegetation" :
-                    "field-model";
+                    mode === "eag-fronts" ? "eag-fronts" :
+                        "field-model";
+
+    const isSampling = selectedTool === "sampling";
+    const isFieldModel = selectedTool === "field-model";
+    const isVegetation = selectedTool === "vegetation";
+    const isEagFronts = selectedTool === "eag-fronts";
 
     const [running, setRunning] = useState(false);
     const [progress, setProgress] = useState(0);
@@ -50,6 +56,7 @@ export default function ToolWorkspace() {
     const [modelComplete, setModelComplete] = useState(false);
     const [metrics, setMetrics] = useState<any>(null);
     const [predictionComplete, setPredictionComplete] = useState(false);
+    const [eagComplete, setEagComplete] = useState(false);
     const [showCovariates, setShowCovariates] = useState(false);
     const [covariates, setCovariates] = useState<{ name: string; description: string }[]>([]);
     const [covariatesLoading, setCovariatesLoading] = useState(false);
@@ -264,70 +271,115 @@ export default function ToolWorkspace() {
     };
 
 
-    const uploadAOI = async (file: File) => {
-
-        const formData = new FormData()
-        formData.append("file", file)
-
-        const res = await fetch("http://127.0.0.1:8000/upload-aoi", {
-            method: "POST",
-            body: formData
-        })
-
-        const geojson = await res.json()
-
-        console.log(geojson)
-
-        if (!map.current) return
-
-        // remove existing AOI if present
-        if (map.current.getSource("aoi")) {
-            map.current.removeLayer("aoi-fill")
-            map.current.removeLayer("aoi-outline")
-            map.current.removeSource("aoi")
+    const runEagFronts = async () => {
+        if (!aoiFile) {
+            setStatus("Please upload an AOI.");
+            return;
         }
 
-        map.current.addSource("aoi", {
-            type: "geojson",
-            data: geojson
-        })
+        setRunning(true);
+        setProgress(10);
+        setStatus("Starting exotic annual grass invasion front analysis...");
+        setEagComplete(false);
 
-        map.current.addLayer({
-            id: "aoi-fill",
-            type: "fill",
-            source: "aoi",
-            paint: {
-                "fill-color": "#3b82f6",
-                "fill-opacity": 0.25
+        try {
+            const response = await fetch("http://127.0.0.1:8000/run-eag-fronts", {
+                method: "POST"
+            });
+
+            const result = await response.json();
+
+            if (!response.ok) {
+                throw new Error(result.detail || "EAG analysis failed.");
             }
-        })
 
-        map.current.addLayer({
-            id: "aoi-outline",
-            type: "line",
-            source: "aoi",
-            paint: {
-                "line-color": "#60a5fa",
-                "line-width": 2
+            setProgress(100);
+            setStatus(result.message || "EAG invasion front analysis complete");
+            setEagComplete(true);
+            await loadEagLayer();
+
+        } catch (error) {
+            console.error(error);
+            setStatus("Error running EAG invasion front analysis");
+            setProgress(0);
+        }
+
+        setRunning(false);
+    };
+
+
+    const uploadAOI = async (file: File) => {
+        try {
+            const formData = new FormData();
+            formData.append("file", file);
+
+            const res = await fetch("http://127.0.0.1:8000/upload-aoi", {
+                method: "POST",
+                body: formData
+            });
+
+            if (!res.ok) {
+                const err = await res.json();
+                throw new Error(err.detail || "AOI upload failed.");
             }
-        })
 
-        // zoom map to AOI extent
-        const bounds = new maplibregl.LngLatBounds()
+            const geojson = await res.json();
 
-        geojson.features.forEach((feature: any) => {
-            const coords = feature.geometry.coordinates.flat(Infinity)
+            setStatus("AOI uploaded successfully.");
 
-            for (let i = 0; i < coords.length; i += 2) {
-                bounds.extend([coords[i], coords[i + 1]])
+            if (!map.current) return;
+
+            if (map.current.getSource("aoi")) {
+                map.current.removeLayer("aoi-fill");
+                map.current.removeLayer("aoi-outline");
+                map.current.removeSource("aoi");
             }
-        })
 
-        map.current.fitBounds(bounds, {
-            padding: 40,
-            duration: 1000
-        })
+            map.current.addSource("aoi", {
+                type: "geojson",
+                data: geojson
+            });
 
+            map.current.addLayer({
+                id: "aoi-fill",
+                type: "fill",
+                source: "aoi",
+                paint: {
+                    "fill-color": "#3b82f6",
+                    "fill-opacity": 0.25
+                }
+            });
+
+            map.current.addLayer({
+                id: "aoi-outline",
+                type: "line",
+                source: "aoi",
+                paint: {
+                    "line-color": "#60a5fa",
+                    "line-width": 2
+                }
+            });
+
+            const bounds = new maplibregl.LngLatBounds();
+
+            geojson.features.forEach((feature: any) => {
+                const coords = feature.geometry.coordinates.flat(Infinity);
+
+                for (let i = 0; i < coords.length; i += 2) {
+                    bounds.extend([coords[i], coords[i + 1]]);
+                }
+            });
+
+            map.current.fitBounds(bounds, {
+                padding: 40,
+                duration: 1000
+            });
+
+        } catch (error) {
+            console.error(error);
+            setStatus("Error uploading AOI");
+            setProgress(0);
+        }
     };
 
 
@@ -381,6 +433,56 @@ export default function ToolWorkspace() {
     };
 
 
+    const loadEagLayer = async () => {
+        if (!map.current) return;
+
+        const res = await fetch("http://127.0.0.1:8000/eag-kernel-bounds");
+        const data = await res.json();
+
+        if (!data.bounds) {
+            console.error("EAG kernel bounds not available.");
+            return;
+        }
+
+        const mapInstance = map.current;
+
+        if (mapInstance.getLayer("eag-kernel")) {
+            mapInstance.removeLayer("eag-kernel");
+        }
+
+        if (mapInstance.getSource("eag-kernel")) {
+            mapInstance.removeSource("eag-kernel");
+        }
+
+        mapInstance.addSource("eag-kernel", {
+            type: "raster",
+            tiles: [
+                `http://127.0.0.1:8000/eag-kernel-tile/{z}/{x}/{y}.png?ts=${Date.now()}`
+            ],
+            tileSize: 256
+        });
+
+        mapInstance.addLayer({
+            id: "eag-kernel",
+            type: "raster",
+            source: "eag-kernel",
+            paint: {
+                "raster-opacity": 0.8
+            }
+        });
+
+        const { west, south, east, north } = data.bounds;
+
+        mapInstance.fitBounds(
+            [
+                [west, south],
+                [east, north]
+            ],
+            { padding: 40, duration: 1000 }
+        );
+    };
+
+
     const loadCovariates = async () => {
         try {
             setCovariatesLoading(true);
@@ -408,15 +510,23 @@ export default function ToolWorkspace() {
             <aside className="w-80 border-r border-slate-700 bg-gradient-to-b from-slate-800 to-slate-900 p-6 flex flex-col shadow-2xl relative z-10">
 
                 <h2 className="text-xl font-semibold text-blue-400 mb-1">
-                    {selectedTool === "sampling"
+                    {isSampling
                         ? "Sampling Design"
-                        : "Field-Based Vegetation Modeling"}
+                        : isFieldModel
+                            ? "Field-Based Vegetation Modeling"
+                            : isEagFronts
+                                ? "Exotic Annual Grass Invasion Fronts"
+                                : "Vegetation Tool"}
                 </h2>
 
                 <p className="text-sm text-slate-200 mb-6">
-                    {selectedTool === "sampling"
+                    {isSampling
                         ? "Upload an AOI to generate optimized sampling locations."
-                        : "Upload an AOI and field data points to train a spatial vegetation model."}
+                        : isFieldModel
+                            ? "Upload an AOI and field data points to train a spatial vegetation model."
+                            : isEagFronts
+                                ? "Upload an AOI and generate a distance-weighted kernel raster identifying likely exotic annual grass invasion fronts."
+                                : "Run vegetation analysis tools in the workspace."}
                 </p>
 
 
@@ -496,6 +606,42 @@ export default function ToolWorkspace() {
 
                         <p className="text-xs text-slate-400 mt-2">
                             Upload a zipped shapefile defining the area to model.
+                        </p>
+                    </div>
+                )}
+
+                {selectedTool === "eag-fronts" && (
+                    <div className="mb-4 border border-slate-700 rounded-lg p-4 bg-slate-800">
+                        <h3 className="font-medium mb-2 text-slate-100">AOI Upload</h3>
+
+                        <label className="flex flex-col items-center justify-center w-full h-24 border-2 border-dashed border-slate-600 rounded-lg cursor-pointer hover:border-emerald-500 transition text-slate-300 text-sm">
+                            <span>Click to upload AOI (.zip shapefile)</span>
+
+                            <input
+                                type="file"
+                                accept=".zip"
+                                className="hidden"
+                                onChange={(e) => {
+                                    if (e.target.files) {
+                                        const file = e.target.files[0];
+                                        setAoiFile(file);
+                                        setEagComplete(false);
+                                        setProgress(0);
+                                        setStatus("AOI uploaded. Ready to run EAG front analysis.");
+                                        uploadAOI(file);
+                                    }
+                                }}
+                            />
+                        </label>
+
+                        {aoiFile && (
+                            <p className="text-xs text-green-400 mt-2">
+                                Uploaded: {aoiFile.name}
+                            </p>
+                        )}
+
+                        <p className="text-xs text-slate-400 mt-2">
+                            Upload a zipped shapefile defining the analysis area for the EAG invasion front kernel raster.
                         </p>
                     </div>
                 )}
@@ -622,11 +768,27 @@ export default function ToolWorkspace() {
                     </div>
                 )}
 
+                {selectedTool === "eag-fronts" && (
+                    <div className="mb-4 border border-slate-700 rounded-lg p-4 bg-slate-800">
+                        <h3 className="font-medium mb-2 text-slate-100">Analysis Output</h3>
+
+                        <p className="text-xs text-slate-300 leading-relaxed">
+                            This tool uses the uploaded AOI and fixed backend annual grass inputs to generate a
+                            distance-weighted kernel raster highlighting likely invasion front pressure.
+                        </p>
+
+                        <p className="text-xs text-slate-400 mt-3">
+                            Current export: kernel raster (.tif)
+                        </p>
+                    </div>
+                )}
+
                 {/* RUN BUTTON */}
                 <button
                     onClick={() => {
                         if (selectedTool === "sampling") runModel();
                         if (selectedTool === "field-model") runFieldModel();
+                        if (selectedTool === "eag-fronts") runEagFronts();
                     }}
                     disabled={running}
                     className={`w-full py-3 rounded-lg font-medium transition shadow-sm mb-4 ${running
@@ -640,7 +802,11 @@ export default function ToolWorkspace() {
                             ? "Run Vegetation Model"
                             : selectedTool === "sampling"
                                 ? "Run Sampling Design"
-                                : "Run Field-Based Model"}
+                                : selectedTool === "field-model"
+                                    ? "Run Field-Based Model"
+                                    : selectedTool === "eag-fronts"
+                                        ? "Run EAG Front Analysis"
+                                        : "Run Tool"}
                 </button>
 
                 {samplingComplete && selectedTool === "sampling" && (
@@ -649,6 +815,15 @@ export default function ToolWorkspace() {
                         className="w-full py-3 rounded-lg font-medium transition shadow-sm mb-4 bg-green-700 hover:bg-green-800 text-white"
                     >
                         Export Sampling Points (.shp)
+                    </button>
+                )}
+
+                {eagComplete && selectedTool === "eag-fronts" && (
+                    <button
+                        onClick={() => window.open("http://127.0.0.1:8000/download-eag-kernel")}
+                        className="w-full py-3 rounded-lg font-medium transition shadow-sm mb-4 bg-green-700 hover:bg-green-800 text-white"
+                    >
+                        Export Kernel Raster (.tif)
                     </button>
                 )}
 
@@ -675,21 +850,39 @@ export default function ToolWorkspace() {
                 <div className="flex items-center justify-between mb-4">
 
                     <h1 className="text-2xl font-semibold text-slate-100">
-                        {selectedTool === "sampling"
+                        {isSampling
                             ? "Sampling Design Workspace"
-                            : "Field-Based Vegetation Modeling"}
+                            : isFieldModel
+                                ? "Field-Based Vegetation Modeling"
+                                : isEagFronts
+                                    ? "Exotic Annual Grass Invasion Front Workspace"
+                                    : "Vegetation Workspace"}
                     </h1>
 
                     <div className="text-xs text-slate-400 bg-slate-800 px-3 py-1 rounded-md">
-                        {running ? "Running" : predictionComplete ? "Prediction complete" : "Idle"}
+                        {running
+                            ? "Running"
+                            : predictionComplete
+                                ? "Prediction complete"
+                                : eagComplete
+                                    ? "EAG complete"
+                                    : samplingComplete
+                                        ? "Sampling complete"
+                                        : modelComplete
+                                            ? "Model complete"
+                                            : "Idle"}
                     </div>
 
                 </div>
 
                 <p className="text-slate-200 mb-6">
-                    {selectedTool === "sampling"
+                    {isSampling
                         ? "Sampling locations and environmental coverage diagnostics will appear here."
-                        : "Model training outputs and predicted vegetation maps will appear here."}
+                        : isFieldModel
+                            ? "Model training outputs and predicted vegetation maps will appear here."
+                            : isEagFronts
+                                ? "The EAG invasion front kernel raster will be generated for the uploaded AOI and made available for export."
+                                : "Vegetation analysis outputs will appear here."}
                 </p>
 
                 {/* TAB BUTTONS */}

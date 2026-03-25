@@ -21,6 +21,9 @@ from rio_tiler.errors import TileOutsideBounds
 from rio_tiler.colormap import cmap
 from fastapi.responses import Response
 
+import rasterio
+from rasterio.warp import transform_bounds
+
 
 app = FastAPI()
 
@@ -438,4 +441,120 @@ def model_covariates():
     ]
 
     return {"covariates": covariates}
+
+
+@app.post("/run-eag-fronts")
+async def run_eag_fronts():
+
+    aoi_path = "uploads/uploaded_aoi.shp"
+    output_dir = "outputs"
+    output_raster = os.path.join(output_dir, "eag_kernel.tif")
+
+    os.makedirs(output_dir, exist_ok=True)
+
+    if not os.path.exists(aoi_path):
+        raise HTTPException(status_code=400, detail="No uploaded AOI found. Please upload an AOI first.")
+
+    try:
+        result = subprocess.run([
+            r"C:/Program Files/R/R-4.4.1/bin/Rscript.exe",
+            "run_eag_fronts.R",
+            aoi_path,
+            output_raster
+        ], check=True, capture_output=True, text=True)
+
+    except subprocess.CalledProcessError as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"EAG analysis failed: {e.stderr or e.stdout or str(e)}"
+        )
+
+    if not os.path.exists(output_raster):
+        raise HTTPException(status_code=500, detail="EAG kernel raster was not created.")
+
+    return {
+        "status": "success",
+        "message": "EAG invasion front analysis complete",
+        "raster_path": output_raster,
+        "download_url": "/download-eag-kernel"
+    }
+    
+@app.get("/download-eag-kernel")
+async def download_eag_kernel():
+    path = "outputs/eag_kernel.tif"
+
+    if not os.path.exists(path):
+        raise HTTPException(status_code=404, detail="EAG kernel raster not found.")
+
+    return FileResponse(
+        path,
+        media_type="image/tiff",
+        filename="eag_kernel.tif"
+    )
+    
+    
+@app.get("/eag-kernel-bounds")
+def eag_kernel_bounds():
+    path = "outputs/eag_kernel.tif"
+
+    if not os.path.exists(path):
+        raise HTTPException(status_code=404, detail="EAG kernel raster not found.")
+
+    with rasterio.open(path) as src:
+        west, south, east, north = transform_bounds(
+            src.crs,
+            "EPSG:4326",
+            *src.bounds,
+            densify_pts=21
+        )
+
+    return {
+        "bounds": {
+            "west": west,
+            "south": south,
+            "east": east,
+            "north": north
+        }
+    }
+    
+@app.get("/eag-kernel-tile/{z}/{x}/{y}.png")
+def eag_kernel_tile(z: int, x: int, y: int):
+    path = "outputs/eag_kernel.tif"
+
+    if not os.path.exists(path):
+        return Response(status_code=404)
+
+    eag_colormap = {
+        1: (180, 35, 35, 255),    # Core Cheatgrass
+        2: (245, 140, 32, 255),   # Active Expansion Front
+        3: (245, 220, 90, 255),   # Expansion Pressure Zone
+        4: (90, 140, 90, 255)     # Low Invasion Risk
+    }
+
+    try:
+        with Reader(path) as src:
+            img = src.tile(x, y, z)
+
+            data = img.data[0].astype("uint8")
+
+            valid = np.isfinite(data) & (data >= 1) & (data <= 4)
+
+            if img.mask is not None:
+                valid = valid & (img.mask > 0)
+
+            alpha_mask = np.where(valid, 255, 0).astype("uint8")
+
+            rendered = render(
+                data,
+                mask=alpha_mask,
+                colormap=eag_colormap
+            )
+
+        return Response(
+            content=rendered,
+            media_type="image/png"
+        )
+
+    except TileOutsideBounds:
+        return Response(status_code=204)
     

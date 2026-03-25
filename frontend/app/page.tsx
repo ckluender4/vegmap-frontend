@@ -18,7 +18,7 @@ export default function Home() {
 
 
       {/* HERO */}
-      <section className="relative px-8 py-28 max-w-5xl mx-auto">
+      <section className="relative mx-auto w-full max-w-screen-2xl px-8 py-28">
 
         <h1 className="text-5xl font-bold tracking-tight leading-tight mb-6">
           Spatial Analysis Tools
@@ -31,7 +31,7 @@ export default function Home() {
           built for scientists, researchers, and land managers.
         </p>
 
-        <div className="flex gap-4">
+        <div className="flex flex-wrap gap-4">
 
           <Link href="/tool?mode=sampling">
             <button className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition shadow-md">
@@ -45,13 +45,19 @@ export default function Home() {
             </button>
           </Link>
 
+          <Link href="/tool?mode=eag-fronts">
+            <button className="bg-emerald-700 text-white px-6 py-3 rounded-lg hover:bg-emerald-800 transition shadow-md">
+              EAG Invasion Fronts
+            </button>
+          </Link>
+
         </div>
 
       </section>
 
 
       {/* TOOLS */}
-      <section className="px-8 pb-24 max-w-6xl mx-auto">
+      <section className="mx-auto w-full max-w-screen-2xl px-8 pb-24">
 
         <h2 className="text-3xl font-bold mb-4">
           Analysis Tools
@@ -106,6 +112,16 @@ export default function Home() {
 
           </div>
 
+          <div className="border border-slate-200 rounded-xl p-6 bg-white shadow-sm hover:shadow-md hover:-translate-y-1 transition">
+            <h3 className="font-semibold text-lg mb-2 text-emerald-700">
+              Exotic Annual Grass Invasion Fronts
+            </h3>
+
+            <p className="text-slate-600 text-sm leading-relaxed">
+              Identify localized invasion and expansion fronts from annual grass cover time series and threshold-based spatial analysis.
+            </p>
+          </div>
+
           {/* TOOL CARD */}
           <div className="border border-slate-200 rounded-xl p-6 bg-white shadow-sm hover:shadow-md hover:-translate-y-1 transition">
 
@@ -126,7 +142,7 @@ export default function Home() {
 
 
       {/* WORKSPACE PREVIEW */}
-      <section className="px-8 pb-28 max-w-6xl mx-auto">
+      <section className="mx-auto w-full max-w-screen-2xl px-8 pb-28">
 
         <h2 className="text-4xl font-bold mb-4">
           A Modern Geospatial Workspace
@@ -186,7 +202,7 @@ export default function Home() {
 
 
       {/* HOW IT WORKS */}
-      <section className="px-8 pb-28 max-w-6xl mx-auto">
+      <section className="mx-auto w-full max-w-screen-2xl px-8 pb-28">
 
         <h2 className="text-3xl font-bold mb-3">
           How VegMap Works
@@ -251,7 +267,7 @@ export default function Home() {
 
 
       {/* CTA */}
-      <section className="px-8 pb-32 max-w-5xl mx-auto text-center">
+      <section className="mx-auto w-full max-w-screen-2xl px-8 pb-32 text-center">
 
         <div className="bg-slate-900 text-slate-100 rounded-2xl p-12 shadow-2xl">
 
@@ -264,7 +280,7 @@ export default function Home() {
             designing monitoring networks, and running spatial analysis tools.
           </p>
 
-          <div className="flex gap-4">
+          <div className="flex justify-center gap-4">
 
             <Link href="/tool?mode=sampling">
               <button className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition shadow-md">
@@ -275,6 +291,12 @@ export default function Home() {
             <Link href="/tool?mode=field-model">
               <button className="bg-slate-800 text-white px-6 py-3 rounded-lg hover:bg-slate-900 transition shadow-md">
                 Field Vegetation Modeling
+              </button>
+            </Link>
+
+            <Link href="/tool?mode=eag-fronts">
+              <button className="bg-emerald-700 text-white px-6 py-3 rounded-lg hover:bg-emerald-800 transition shadow-md">
+                EAG Invasion Fronts
               </button>
             </Link>
 

@@ -122,6 +122,28 @@ export default function Navbar() {
                 </div>
               </Link>
 
+              <Link
+                href="/tool?mode=eag-fronts"
+                onClick={() => setOpen(false)}
+                className="block px-4 py-3 hover:bg-slate-50 transition"
+              >
+                <div className="flex gap-3">
+
+                  <div className="text-lg">🌾</div>
+
+                  <div>
+                    <div className="text-sm font-medium text-slate-900">
+                      Exotic Annual Grass Invasion Fronts
+                    </div>
+
+                    <div className="text-xs text-slate-500">
+                      Distance-weighted kernel mapping of likely invasion fronts
+                    </div>
+                  </div>
+
+                </div>
+              </Link>
+
 
               {/* DIVIDER */}
 
