@@ -1,0 +1,7 @@
+name: vegmap-api
+channels:
+  - conda-forge
+dependencies:
+  - python=3.11
+  - rasterio
+prefix: C:\Users\ckluender\AppData\Local\miniforge3\envs\vegmap-api
