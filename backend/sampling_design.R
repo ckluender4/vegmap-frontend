@@ -54,11 +54,32 @@ keep_layers <- c(
 
 pred <- pred[[keep_layers]]
 
-crs(pred)
-crs(aoi)
-#crs(mask_polys)
+cat("Raster CRS:\n")
+print(crs(pred))
 
-if (st_crs(mask_polys) != st_crs(aoi)) { mask_polys <- st_transform(mask_polys, st_crs(aoi)) }
+cat("AOI CRS before transform:\n")
+print(st_crs(aoi))
+
+cat("Mask CRS before transform:\n")
+print(st_crs(mask_polys))
+
+# Reproject AOI to raster CRS
+if (st_crs(aoi)$wkt != crs(pred)) {
+  message("Reprojecting AOI to raster CRS...")
+  aoi <- st_transform(aoi, crs(pred))
+}
+
+# Reproject mask polygons to raster CRS
+if (st_crs(mask_polys)$wkt != crs(pred)) {
+  message("Reprojecting mask polygons to raster CRS...")
+  mask_polys <- st_transform(mask_polys, crs(pred))
+}
+
+cat("AOI CRS after transform:\n")
+print(st_crs(aoi))
+
+cat("Mask CRS after transform:\n")
+print(st_crs(mask_polys))
 
 mask_polys <- st_simplify(mask_polys, dTolerance = 30)
 
@@ -88,6 +109,16 @@ if (st_is_empty(aoi_inner)) {
 # -----------------------------
 aoi_vect <- vect(aoi_inner)
 mask_vect <- vect(mask_polys)
+
+cat("Raster extent:\n")
+print(ext(pred))
+
+cat("AOI extent:\n")
+print(ext(aoi_vect))
+
+if (!relate(ext(pred), ext(aoi_vect), "intersects")) {
+  stop("AOI and predictor raster do not overlap after CRS transformation.")
+}
 
 # Crop to AOI extent first
 pred <- crop(pred, aoi_vect)

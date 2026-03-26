@@ -217,8 +217,14 @@ levels(expansion_kernel) <- data.frame(
 # -----------------------------
 # WRITE FINAL OUTPUT
 # -----------------------------
-writeRaster(
+expansion_kernel_web <- project(
   expansion_kernel,
+  "EPSG:3857",
+  method = "near"
+)
+
+writeRaster(
+  expansion_kernel_web,
   out_raster_path,
   overwrite = TRUE,
   wopt = list(
@@ -226,6 +232,11 @@ writeRaster(
     gdal = c("COMPRESS=LZW", "NUM_THREADS=ALL_CPUS")
   )
 )
+
+cat("\nFinal output CRS:\n")
+print(crs(expansion_kernel_web))
+cat("Final output extent:\n")
+print(ext(expansion_kernel_web))
 
 cat("\nDone.\n")
 cat("Output written to: ", out_raster_path, "\n", sep = "")
