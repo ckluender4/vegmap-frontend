@@ -66,66 +66,164 @@ async def predict(file: UploadFile = File(...)):
 
 
 
+import os
+import json
+import zipfile
+import tempfile
+import numpy as np
+import geopandas as gpd
+
+from fastapi import UploadFile, File, HTTPException
+from pyproj import Transformer
+from shapely.ops import transform as shp_transform
+
+
 @app.post("/upload-aoi")
 async def upload_aoi(file: UploadFile = File(...)):
-
     upload_dir = "uploads"
     os.makedirs(upload_dir, exist_ok=True)
 
     with tempfile.TemporaryDirectory() as tmp:
-
         # Save uploaded zip
         zip_path = os.path.join(tmp, file.filename)
         with open(zip_path, "wb") as f:
             f.write(await file.read())
 
-        # Extract shapefile contents
+        # Extract zip
         with zipfile.ZipFile(zip_path, "r") as zip_ref:
             zip_ref.extractall(tmp)
 
-        # Find the shapefile
-        shp_files = [f for f in os.listdir(tmp) if f.lower().endswith(".shp")]
+        # Find .shp anywhere in extracted folder tree
+        shp_files = []
+        for root, _, files in os.walk(tmp):
+            for f in files:
+                if f.lower().endswith(".shp"):
+                    shp_files.append(os.path.join(root, f))
+
         if len(shp_files) == 0:
-            return {"error": "No .shp file found in uploaded zip"}
+            raise HTTPException(status_code=400, detail="No .shp file found in uploaded zip")
 
-        shp_path = os.path.join(tmp, shp_files[0])
+        shp_path = shp_files[0]
+        print("\n--- AOI upload debug ---")
+        print(f"Shapefile path: {shp_path}")
 
-        # Load AOI
+        # Read shapefile
         gdf = gpd.read_file(shp_path)
 
-        # Remove empty geometry
-        gdf = gdf[gdf.geometry.notnull()]
+        print(f"Initial CRS: {gdf.crs}")
+        print(f"Initial feature count: {len(gdf)}")
+        print(f"Initial geom types: {gdf.geometry.geom_type.value_counts(dropna=False).to_dict()}")
+        print(f"Initial bounds: {gdf.total_bounds}")
 
-        # Fix topology issues (self intersections, open rings, etc.)
-        gdf["geometry"] = gdf.geometry.buffer(0)
-
-        # Drop still-invalid geometry
-        gdf = gdf[gdf.is_valid]
-
-        if len(gdf) == 0:
-            return {"error": "Uploaded AOI contains no valid geometry"}
-
-        # Ensure CRS exists
-        if gdf.crs is None:
-            gdf = gdf.set_crs(4326)
-
-        # Dissolve to a single AOI polygon
-        gdf = gdf.dissolve()
-        gdf = gdf[gdf.geometry.notnull() & gdf.is_valid]
+        # Drop null / empty geometry
+        gdf = gdf[gdf.geometry.notnull()].copy()
+        gdf = gdf[~gdf.geometry.is_empty].copy()
 
         if gdf.empty:
-            return {"error": "AOI invalid after dissolve"}
+            raise HTTPException(status_code=400, detail="Uploaded AOI contains no geometry")
 
-        # Save AOI for backend scripts
+        if gdf.crs is None:
+            raise HTTPException(status_code=400, detail="Uploaded shapefile has no CRS defined")
+
+        # Repair geometry
+        gdf["geometry"] = gdf.geometry.make_valid()
+
+        gdf = gdf[gdf.geometry.notnull()].copy()
+        gdf = gdf[~gdf.geometry.is_empty].copy()
+        gdf = gdf[gdf.geometry.geom_type.isin(["Polygon", "MultiPolygon"])].copy()
+
+        # Break multipart into single polygons
+        gdf = gdf.explode(index_parts=False).reset_index(drop=True)
+
+        # Final cleanup in source CRS
+        gdf["geometry"] = gdf.geometry.buffer(0)
+        gdf = gdf[gdf.geometry.notnull()].copy()
+        gdf = gdf[~gdf.geometry.is_empty].copy()
+        gdf = gdf[gdf.is_valid].copy()
+        gdf = gdf[gdf.geometry.geom_type.isin(["Polygon", "MultiPolygon"])].copy()
+
+        print(f"Post-repair feature count: {len(gdf)}")
+        print(f"Post-repair geom types: {gdf.geometry.geom_type.value_counts(dropna=False).to_dict()}")
+
+        if gdf.empty:
+            raise HTTPException(status_code=400, detail="Uploaded AOI contains no valid polygon geometry")
+
+        # Save backend AOI in native CRS
+        backend_aoi = gdf.dissolve()
+        backend_aoi = backend_aoi[backend_aoi.geometry.notnull()].copy()
+        backend_aoi = backend_aoi[~backend_aoi.geometry.is_empty].copy()
+
+        if backend_aoi.empty:
+            raise HTTPException(status_code=400, detail="AOI invalid after dissolve")
+
+        print(f"Post-dissolve bounds: {backend_aoi.total_bounds}")
+
         saved_path = os.path.join(upload_dir, "uploaded_aoi.shp")
-        gdf.to_file(saved_path)
+        backend_aoi.to_file(saved_path)
 
-        # Convert to web CRS for map display
-        gdf_web = gdf.to_crs(4326)
-        gdf_web = gdf_web[gdf_web.is_valid & gdf_web.geometry.notnull()]
+        # --------------------------------------------------
+        # Manual reprojection for web display
+        # --------------------------------------------------
+        transformer = Transformer.from_crs(gdf.crs, 4326, always_xy=True)
 
-        # Convert safely to GeoJSON
+        def safe_project_geom(geom):
+            try:
+                if geom is None or geom.is_empty:
+                    return None
+
+                geom_web = shp_transform(transformer.transform, geom)
+
+                if geom_web is None or geom_web.is_empty:
+                    return None
+
+                minx, miny, maxx, maxy = geom_web.bounds
+                if not np.isfinite([minx, miny, maxx, maxy]).all():
+                    return None
+
+                return geom_web
+            except Exception as e:
+                print(f"Projection failed for one geometry part: {e}")
+                return None
+
+        gdf_web = gdf.copy()
+        gdf_web["geometry"] = gdf_web.geometry.apply(safe_project_geom)
+        gdf_web = gdf_web[gdf_web.geometry.notnull()].copy()
+        gdf_web = gdf_web[~gdf_web.geometry.is_empty].copy()
+        gdf_web = gdf_web[gdf_web.geometry.geom_type.isin(["Polygon", "MultiPolygon"])].copy()
+
+        print(f"Web feature count after manual reprojection: {len(gdf_web)}")
+        if not gdf_web.empty:
+            print(f"Web bounds before dissolve: {gdf_web.total_bounds}")
+
+        if gdf_web.empty:
+            raise HTTPException(
+                status_code=400,
+                detail="AOI reprojection failed for all geometry parts"
+            )
+
+        # Dissolve good display parts back together
+        gdf_web = gdf_web.dissolve()
+        gdf_web = gdf_web[gdf_web.geometry.notnull()].copy()
+        gdf_web = gdf_web[~gdf_web.geometry.is_empty].copy()
+
+        if gdf_web.empty:
+            raise HTTPException(
+                status_code=400,
+                detail="AOI display geometry is empty after dissolve"
+            )
+
+        web_bounds = gdf_web.total_bounds
+        print(f"Web bounds after dissolve: {web_bounds}")
+
+        if not np.isfinite(web_bounds).all():
+            raise HTTPException(
+                status_code=400,
+                detail="AOI display geometry still contains invalid coordinates after cleanup"
+            )
+
         geojson = json.loads(gdf_web.to_json(na="null"))
+        print(f"Returned GeoJSON feature count: {len(geojson.get('features', []))}")
+        print("--- End AOI upload debug ---\n")
 
         return geojson
 
@@ -302,10 +400,23 @@ def prediction_raster():
     
     
     
+from fastapi import HTTPException
+from fastapi.responses import FileResponse
+import os
+
 @app.get("/prediction-legend")
 def prediction_legend():
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    legend_path = os.path.join(base_dir, "outputs", "prediction_legend.png")
+
+    if not os.path.exists(legend_path):
+        raise HTTPException(
+            status_code=404,
+            detail="Prediction legend not found. Run the model first or regenerate the legend."
+        )
+
     return FileResponse(
-        "outputs/prediction_legend.png",
+        legend_path,
         media_type="image/png"
     )
     
