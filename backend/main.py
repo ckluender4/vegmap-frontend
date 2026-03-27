@@ -3,9 +3,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
 from fastapi import APIRouter
 
+import os
+os.environ.setdefault("PROJ_NETWORK", "OFF")
+
 import numpy as np
 from PIL import Image
 import geopandas as gpd
+import pandas as pd
 import zipfile
 import tempfile
 import os
@@ -23,6 +27,11 @@ from fastapi.responses import Response
 
 import rasterio
 from rasterio.warp import transform_bounds
+
+import zipfile
+import tempfile
+import glob
+from fastapi.responses import FileResponse
 
 
 app = FastAPI()
@@ -265,7 +274,62 @@ async def download_sampling():
         filename="sampling_points.zip"
     )
  
- 
+def validate_wgs84_csv(csv_path: str, lat_column: str, lon_column: str):
+    df = pd.read_csv(csv_path)
+
+    if lat_column not in df.columns:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Latitude column '{lat_column}' not found in CSV."
+        )
+
+    if lon_column not in df.columns:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Longitude column '{lon_column}' not found in CSV."
+        )
+
+    lat = pd.to_numeric(df[lat_column], errors="coerce")
+    lon = pd.to_numeric(df[lon_column], errors="coerce")
+
+    valid = lat.notna() & lon.notna()
+    if valid.sum() == 0:
+        raise HTTPException(
+            status_code=400,
+            detail="No valid numeric coordinates found in the specified latitude and longitude columns."
+        )
+
+    lat_valid = lat[valid]
+    lon_valid = lon[valid]
+
+    # WGS84 decimal degree sanity checks
+    if ((lat_valid < -90) | (lat_valid > 90)).any():
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Latitude column '{lat_column}' contains values outside [-90, 90]. "
+                "This tool currently requires WGS84 decimal degrees (EPSG:4326)."
+            )
+        )
+
+    if ((lon_valid < -180) | (lon_valid > 180)).any():
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Longitude column '{lon_column}' contains values outside [-180, 180]. "
+                "This tool currently requires WGS84 decimal degrees (EPSG:4326)."
+            )
+        )
+
+    # Helpful warning-style check for likely swapped columns
+    if lat_valid.abs().mean() > 90 or lon_valid.abs().mean() <= 90:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Coordinates may be swapped or not in WGS84 decimal degrees. "
+                "Expected latitude in [-90, 90] and longitude in [-180, 180]."
+            )
+        )
     
 TRAIN_PROGRESS_JSON = "outputs/training_progress.json"
 
@@ -287,6 +351,9 @@ async def train_field_model(
     with open(csv_path, "wb") as buffer:
         shutil.copyfileobj(csv.file, buffer)
 
+    # Validate coordinate columns before launching training
+    validate_wgs84_csv(csv_path, lat_column, lon_column)
+
     with open("outputs/training_progress.json", "w") as f:
         json.dump({
             "progress": 0.0,
@@ -300,7 +367,8 @@ async def train_field_model(
         csv_path,
         lat_column,
         lon_column,
-        response_column
+        response_column,
+        "EPSG:4326"
     ])
 
     return {
@@ -339,18 +407,28 @@ def training_result():
     
 @app.post("/predict-raster")
 def predict_raster():
-
     import subprocess
     import sys
+    import time
+
+    run_id = str(int(time.time() * 1000))
+
+    with open("outputs/prediction_progress.json", "w") as f:
+        json.dump({
+            "progress": 0.0,
+            "status": "starting",
+            "run_id": run_id
+        }, f)
 
     subprocess.Popen(
-        [sys.executable, "predict_raster.py"],
+        [sys.executable, "predict_raster.py", run_id],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL
     )
 
     return {
-        "status": "started"
+        "status": "started",
+        "run_id": run_id
     }
     
 
@@ -431,7 +509,6 @@ def prediction_cog():
 
 @app.get("/prediction-tile/{z}/{x}/{y}.png")
 def prediction_tile(z: int, x: int, y: int):
-
     path = "outputs/prediction_cog.tif"
     progress_path = "outputs/prediction_progress.json"
 
@@ -448,8 +525,8 @@ def prediction_tile(z: int, x: int, y: int):
                 stretch = prog.get("stretch", {})
                 vmin = float(stretch.get("vmin", 0.0))
                 vmax = float(stretch.get("vmax", 100.0))
-        except Exception:
-            pass
+        except Exception as e:
+            print("Could not read stretch info:", e)
 
     if vmax <= vmin:
         vmax = vmin + 1.0
@@ -460,7 +537,6 @@ def prediction_tile(z: int, x: int, y: int):
 
             data = img.data[0].astype("float32")
 
-            # force transparency outside AOI / nodata areas
             valid = np.isfinite(data) & (data != nodata_value)
 
             if img.mask is not None:
@@ -481,13 +557,19 @@ def prediction_tile(z: int, x: int, y: int):
                 colormap=cmap.get("viridis")
             )
 
-        return Response(
-            content=rendered,
-            media_type="image/png"
-        )
+        return Response(content=rendered, media_type="image/png")
 
     except TileOutsideBounds:
         return Response(status_code=204)
+
+    except Exception as e:
+        msg = str(e)
+
+        if "Read failed" in msg:
+            return Response(status_code=204)
+
+        print(f"prediction_tile error for z={z}, x={x}, y={y}: {msg}")
+        return Response(status_code=500, content=msg)
     
     
 @app.get("/model-covariates")
@@ -668,4 +750,167 @@ def eag_kernel_tile(z: int, x: int, y: int):
 
     except TileOutsideBounds:
         return Response(status_code=204)
+    
+
+def zip_shapefile_components(shp_path: str, zip_path: str):
+    base = os.path.splitext(shp_path)[0]
+    exts = [".shp", ".shx", ".dbf", ".prj", ".cpg"]
+    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+        for ext in exts:
+            f = base + ext
+            if os.path.exists(f):
+                zf.write(f, arcname=os.path.basename(f))
+                
+@app.post("/convert-input-data")
+async def convert_input_data(
+    file: UploadFile = File(...),
+    input_type: str = Form(...),           # "csv" or "shp_zip"
+    input_crs: str = Form(...),            # e.g. "EPSG:4326"
+    x_column: str = Form(""),
+    y_column: str = Form(""),
+    response_column: str = Form("")
+):
+    import pandas as pd
+    import geopandas as gpd
+    import json
+    import shutil
+
+    out_dir = os.path.join("outputs", "coordinate_prep")
+    os.makedirs(out_dir, exist_ok=True)
+
+    # clear old outputs
+    for f in glob.glob(os.path.join(out_dir, "*")):
+        try:
+            os.remove(f)
+        except:
+            pass
+
+    try:
+        if input_type == "csv":
+            csv_path = os.path.join(out_dir, "uploaded_points.csv")
+            with open(csv_path, "wb") as buffer:
+                shutil.copyfileobj(file.file, buffer)
+
+            df = pd.read_csv(csv_path)
+
+            if x_column not in df.columns:
+                raise HTTPException(status_code=400, detail=f"X column '{x_column}' not found in CSV.")
+            if y_column not in df.columns:
+                raise HTTPException(status_code=400, detail=f"Y column '{y_column}' not found in CSV.")
+
+            df[x_column] = pd.to_numeric(df[x_column], errors="coerce")
+            df[y_column] = pd.to_numeric(df[y_column], errors="coerce")
+            df = df.dropna(subset=[x_column, y_column]).copy()
+
+            if df.empty:
+                raise HTTPException(status_code=400, detail="No valid numeric coordinate rows found in CSV.")
+
+            gdf = gpd.GeoDataFrame(
+                df.copy(),
+                geometry=gpd.points_from_xy(df[x_column], df[y_column]),
+                crs=input_crs
+            )
+
+        elif input_type == "shp_zip":
+            zip_path = os.path.join(out_dir, "uploaded_shapefile.zip")
+            with open(zip_path, "wb") as buffer:
+                shutil.copyfileobj(file.file, buffer)
+
+            extract_dir = os.path.join(out_dir, "unzipped")
+            os.makedirs(extract_dir, exist_ok=True)
+
+            with zipfile.ZipFile(zip_path, "r") as zf:
+                zf.extractall(extract_dir)
+
+            shp_files = glob.glob(os.path.join(extract_dir, "*.shp"))
+            if not shp_files:
+                raise HTTPException(status_code=400, detail="Uploaded zip does not contain a .shp file.")
+
+            shp_path = shp_files[0]
+            gdf = gpd.read_file(shp_path)
+
+            if gdf.crs is None:
+                gdf = gdf.set_crs(input_crs)
+
+        else:
+            raise HTTPException(status_code=400, detail="input_type must be 'csv' or 'shp_zip'.")
+
+        if gdf.empty:
+            raise HTTPException(status_code=400, detail="No valid features found in uploaded file.")
+
+        # Reproject outputs
+        gdf_5070 = gdf.to_crs("EPSG:5070")
+        gdf_4326 = gdf.to_crs("EPSG:4326")
+        
+        # Remove invalid point geometries before preview/export
+        if all(gdf_4326.geometry.geom_type == "Point"):
+            finite_mask = (
+                gdf_4326.geometry.notnull() &
+                np.isfinite(gdf_4326.geometry.x) &
+                np.isfinite(gdf_4326.geometry.y)
+            )
+            kept_index = gdf_4326.index[finite_mask]
+            gdf_4326 = gdf_4326.loc[kept_index].copy()
+            gdf_5070 = gdf_5070.loc[kept_index].copy()
+
+        if gdf_4326.empty:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "No valid features remained after reprojection. "
+                    "Please check that the selected X/Y columns and input CRS are correct."
+                )
+            )
+
+        # Save 5070 shapefile
+        shp_5070_path = os.path.join(out_dir, "converted_5070.shp")
+        gdf_5070.to_file(shp_5070_path)
+
+        zip_5070_path = os.path.join(out_dir, "converted_5070.zip")
+        zip_shapefile_components(shp_5070_path, zip_5070_path)
+
+        # Save 4326 CSV
+        csv_4326_path = os.path.join(out_dir, "converted_wgs84.csv")
+        df_4326 = gdf_4326.copy()
+        df_4326["longitude"] = df_4326.geometry.x
+        df_4326["latitude"] = df_4326.geometry.y
+        df_4326 = df_4326.drop(columns=["geometry"], errors="ignore")
+        df_4326.to_csv(csv_4326_path, index=False)
+
+        # Save 4326 GeoJSON for preview
+        geojson_4326_path = os.path.join(out_dir, "converted_wgs84.geojson")
+        with open(geojson_4326_path, "w") as f:
+            f.write(gdf_4326.to_json())
+
+        return {
+            "status": "complete",
+            "feature_count": int(len(gdf_4326)),
+            "input_crs": str(gdf.crs),
+            "outputs": {
+                "shapefile_5070_zip": "/download-converted-5070",
+                "csv_wgs84": "/download-converted-wgs84-csv"
+            },
+            "preview_geojson": json.loads(gdf_4326.to_json())
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    
+
+@app.get("/download-converted-5070")
+async def download_converted_5070():
+    path = os.path.join("outputs", "coordinate_prep", "converted_5070.zip")
+    if not os.path.exists(path):
+        raise HTTPException(status_code=404, detail="Converted 5070 shapefile not found.")
+    return FileResponse(path, filename="converted_5070.zip", media_type="application/zip")
+
+
+@app.get("/download-converted-wgs84-csv")
+async def download_converted_wgs84_csv():
+    path = os.path.join("outputs", "coordinate_prep", "converted_wgs84.csv")
+    if not os.path.exists(path):
+        raise HTTPException(status_code=404, detail="Converted WGS84 CSV not found.")
+    return FileResponse(path, filename="converted_wgs84.csv", media_type="text/csv")
     

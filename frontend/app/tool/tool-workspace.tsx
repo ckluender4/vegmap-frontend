@@ -63,6 +63,18 @@ export default function ToolWorkspace() {
     const [workspaceTab, setWorkspaceTab] = useState<"map" | "details">("map");
     const [legendUrl, setLegendUrl] = useState<string | null>(null);
     const [legendAvailable, setLegendAvailable] = useState(false);
+    const [convertFile, setConvertFile] = useState<File | null>(null);
+    const [convertInputType, setConvertInputType] = useState<"csv" | "shp_zip">("csv");
+    const [convertInputCrs, setConvertInputCrs] = useState("EPSG:4326");
+    const [convertXColumn, setConvertXColumn] = useState("");
+    const [convertYColumn, setConvertYColumn] = useState("");
+    const [convertResponseColumn, setConvertResponseColumn] = useState("");
+    const [convertStatus, setConvertStatus] = useState("");
+    const [convertPreview, setConvertPreview] = useState<any>(null);
+    const [convertColumns, setConvertColumns] = useState<string[]>([]);
+    const [predictionRunId, setPredictionRunId] = useState<string | null>(null);
+    const [showCoordinatePrep, setShowCoordinatePrep] = useState(false);
+
 
 
     useEffect(() => {
@@ -109,6 +121,118 @@ export default function ToolWorkspace() {
             }, 0);
         }
     }, [workspaceTab]);
+
+    const clearPredictionLayer = () => {
+        if (!map.current) return;
+
+        const mapInstance = map.current;
+
+        if (mapInstance.getLayer("prediction")) {
+            mapInstance.removeLayer("prediction");
+        }
+
+        if (mapInstance.getSource("prediction")) {
+            mapInstance.removeSource("prediction");
+        }
+    };
+
+
+    const handleConvertFileChange = async (file: File | null) => {
+        setConvertFile(file);
+        setConvertColumns([]);
+        setConvertXColumn("");
+        setConvertYColumn("");
+        setConvertResponseColumn("");
+
+        if (!file) return;
+
+        if (file.name.toLowerCase().endsWith(".csv")) {
+            setConvertInputType("csv");
+
+            const text = await file.text();
+            const firstLine = text.split(/\r?\n/)[0];
+            const cols = firstLine.split(",").map(c => c.trim().replace(/^"|"$/g, ""));
+            setConvertColumns(cols);
+        } else if (file.name.toLowerCase().endsWith(".zip")) {
+            setConvertInputType("shp_zip");
+        }
+    };
+
+    const handleConvertInputData = async () => {
+        if (!convertFile) {
+            setConvertStatus("Please upload a CSV or zipped shapefile.");
+            return;
+        }
+
+        if (convertInputType === "csv" && (!convertXColumn || !convertYColumn)) {
+            setConvertStatus("Please select the X and Y columns.");
+            return;
+        }
+
+        try {
+            setConvertStatus("Converting input data...");
+
+            const formData = new FormData();
+            formData.append("file", convertFile);
+            formData.append("input_type", convertInputType);
+            formData.append("input_crs", convertInputCrs);
+            formData.append("x_column", convertXColumn);
+            formData.append("y_column", convertYColumn);
+            formData.append("response_column", convertResponseColumn || "");
+
+            const res = await fetch("http://127.0.0.1:8000/convert-input-data", {
+                method: "POST",
+                body: formData,
+            });
+
+            if (!res.ok) {
+                let errorMessage = `Request failed with status ${res.status}`;
+                try {
+                    const errorData = await res.json();
+                    errorMessage =
+                        errorData?.detail ||
+                        errorData?.message ||
+                        errorMessage;
+                } catch { }
+                throw new Error(errorMessage);
+            }
+
+            const result = await res.json();
+
+            setConvertPreview(result.preview_geojson ?? null);
+            setConvertStatus(`Conversion complete. ${result.feature_count} features processed.`);
+
+            if (map.current && result.preview_geojson) {
+                if (map.current.getSource("converted-preview")) {
+                    map.current.removeLayer("converted-preview");
+                    map.current.removeSource("converted-preview");
+                }
+
+                map.current.addSource("converted-preview", {
+                    type: "geojson",
+                    data: result.preview_geojson,
+                });
+
+                map.current.addLayer({
+                    id: "converted-preview",
+                    type: "circle",
+                    source: "converted-preview",
+                    paint: {
+                        "circle-radius": 4,
+                        "circle-color": "#22c55e",
+                        "circle-stroke-color": "#ffffff",
+                        "circle-stroke-width": 1,
+                    },
+                });
+            }
+        } catch (error: unknown) {
+            const message =
+                error instanceof Error
+                    ? error.message
+                    : "Conversion failed";
+            setConvertStatus(message);
+        }
+    };
 
     const runModel = async () => {
         if (running) return;
@@ -194,22 +318,48 @@ export default function ToolWorkspace() {
         setProgress(0);
         setStatus("Starting model training...");
 
+        if (!trainingCsv) {
+            setStatus("Please upload a training CSV.");
+            return;
+        }
+
+        if (!latColumn || !lonColumn || !responseColumn) {
+            setStatus("Please select latitude, longitude, and response columns.");
+            return;
+        }
+
         try {
+            setRunning(true);
+            setModelComplete(false);
+            setMetrics(null);
+            setProgress(0);
+            setStatus("Submitting training data...");
+
             const formData = new FormData();
             formData.append("csv", trainingCsv);
             formData.append("lat_column", latColumn);
             formData.append("lon_column", lonColumn);
             formData.append("response_column", responseColumn);
 
-            const startRes = await fetch("http://127.0.0.1:8000/train-field-model", {
+            const trainRes = await fetch("http://127.0.0.1:8000/train-field-model", {
                 method: "POST",
-                body: formData
+                body: formData,
             });
 
-            const startData = await startRes.json();
+            if (!trainRes.ok) {
+                let errorMessage = `Request failed with status ${trainRes.status}`;
 
-            if (startData.status !== "started") {
-                throw new Error("Training process failed to start.");
+                try {
+                    const errorData = await trainRes.json();
+                    errorMessage =
+                        errorData?.detail ||
+                        errorData?.message ||
+                        errorData?.error ||
+                        errorMessage;
+                } catch {
+                }
+
+                throw new Error(errorMessage);
             }
 
             const interval = setInterval(async () => {
@@ -248,7 +398,7 @@ export default function ToolWorkspace() {
 
                             map.current.addSource("training-points", {
                                 type: "geojson",
-                                data: result.training_points
+                                data: result.training_points,
                             });
 
                             map.current.addLayer({
@@ -259,8 +409,8 @@ export default function ToolWorkspace() {
                                     "circle-radius": 4,
                                     "circle-color": "#f59e0b",
                                     "circle-stroke-color": "#ffffff",
-                                    "circle-stroke-width": 1
-                                }
+                                    "circle-stroke-width": 1,
+                                },
                             });
                         }
 
@@ -270,15 +420,19 @@ export default function ToolWorkspace() {
                         setProgress(100);
                         setStatus("Model training complete");
                     }
-
                 } catch (error) {
                     console.error("Training progress polling failed", error);
                 }
             }, 1000);
-
-        } catch (error) {
+        } catch (error: unknown) {
             console.error(error);
-            setStatus("Error contacting modeling API");
+
+            const message =
+                error instanceof Error
+                    ? error.message
+                    : "Error contacting modeling API";
+
+            setStatus(message);
             setProgress(0);
             setRunning(false);
         }
@@ -467,7 +621,7 @@ export default function ToolWorkspace() {
         mapInstance.addSource("prediction", {
             type: "raster",
             tiles: [
-                `http://127.0.0.1:8000/prediction-tile/{z}/{x}/{y}.png?ts=${Date.now()}`
+                `http://127.0.0.1:8000/prediction-tile/{z}/{x}/{y}.png?run_id=${predictionRunId ?? Date.now()}`
             ],
             tileSize: 256
         });
@@ -638,6 +792,129 @@ export default function ToolWorkspace() {
                 )}
 
                 {selectedTool === "field-model" && (
+                    <div className="mb-4 border border-slate-700 rounded-lg bg-slate-900/60 overflow-hidden">
+                        <button
+                            type="button"
+                            onClick={() => setShowCoordinatePrep((prev) => !prev)}
+                            className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-slate-800/80"
+                        >
+                            <div>
+                                <h3 className="font-medium text-slate-100">Coordinate Prep Tool</h3>
+                                <p className="text-xs text-slate-400 mt-1">
+                                    Convert a CSV or zipped shapefile into VegMap-ready formats.
+                                </p>
+                            </div>
+                            <span className="text-slate-300 text-sm">
+                                {showCoordinatePrep ? "▲" : "▼"}
+                            </span>
+                        </button>
+
+                        {showCoordinatePrep && (
+                            <div className="border-t border-slate-700 p-4 space-y-4">
+                                <input
+                                    type="file"
+                                    accept=".csv,.zip"
+                                    onChange={(e) => handleConvertFileChange(e.target.files?.[0] ?? null)}
+                                    className="block w-full text-sm text-slate-300"
+                                />
+
+                                <div>
+                                    <label className="block text-sm text-slate-300 mb-1">Input CRS</label>
+                                    <select
+                                        value={convertInputCrs}
+                                        onChange={(e) => setConvertInputCrs(e.target.value)}
+                                        className="w-full rounded-lg bg-slate-800 border border-slate-700 text-slate-100 p-2"
+                                    >
+                                        <option value="EPSG:4326">WGS84 (EPSG:4326)</option>
+                                        <option value="EPSG:5070">NAD83 / Conus Albers (EPSG:5070)</option>
+                                        <option value="EPSG:3857">Web Mercator (EPSG:3857)</option>
+                                        <option value="EPSG:26911">UTM Zone 11N (EPSG:26911)</option>
+                                        <option value="EPSG:26912">UTM Zone 12N (EPSG:26912)</option>
+                                    </select>
+                                </div>
+
+                                {convertInputType === "csv" && convertColumns.length > 0 && (
+                                    <div className="grid grid-cols-1 gap-3">
+                                        <div>
+                                            <label className="block text-sm text-slate-300 mb-1">X column</label>
+                                            <select
+                                                value={convertXColumn}
+                                                onChange={(e) => setConvertXColumn(e.target.value)}
+                                                className="w-full rounded-lg bg-slate-800 border border-slate-700 text-slate-100 p-2"
+                                            >
+                                                <option value="">Select X column</option>
+                                                {convertColumns.map((col) => (
+                                                    <option key={col} value={col}>{col}</option>
+                                                ))}
+                                            </select>
+                                        </div>
+
+                                        <div>
+                                            <label className="block text-sm text-slate-300 mb-1">Y column</label>
+                                            <select
+                                                value={convertYColumn}
+                                                onChange={(e) => setConvertYColumn(e.target.value)}
+                                                className="w-full rounded-lg bg-slate-800 border border-slate-700 text-slate-100 p-2"
+                                            >
+                                                <option value="">Select Y column</option>
+                                                {convertColumns.map((col) => (
+                                                    <option key={col} value={col}>{col}</option>
+                                                ))}
+                                            </select>
+                                        </div>
+
+                                        <div>
+                                            <label className="block text-sm text-slate-300 mb-1">Response column (optional)</label>
+                                            <select
+                                                value={convertResponseColumn}
+                                                onChange={(e) => setConvertResponseColumn(e.target.value)}
+                                                className="w-full rounded-lg bg-slate-800 border border-slate-700 text-slate-100 p-2"
+                                            >
+                                                <option value="">None</option>
+                                                {convertColumns.map((col) => (
+                                                    <option key={col} value={col}>{col}</option>
+                                                ))}
+                                            </select>
+                                        </div>
+                                    </div>
+                                )}
+
+                                <button
+                                    onClick={handleConvertInputData}
+                                    className="w-full py-2 rounded-lg font-medium bg-emerald-600 hover:bg-emerald-500 text-white"
+                                >
+                                    Convert Input Data
+                                </button>
+
+                                {convertStatus && (
+                                    <p className="text-sm text-slate-300">{convertStatus}</p>
+                                )}
+
+                                <div className="flex flex-col gap-2">
+                                    <a
+                                        href="http://127.0.0.1:8000/download-converted-5070"
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        className="text-sm text-amber-300 hover:text-amber-200 underline"
+                                    >
+                                        Download EPSG:5070 shapefile
+                                    </a>
+
+                                    <a
+                                        href="http://127.0.0.1:8000/download-converted-wgs84-csv"
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        className="text-sm text-amber-300 hover:text-amber-200 underline"
+                                    >
+                                        Download WGS84 CSV
+                                    </a>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                )}
+
+                {selectedTool === "field-model" && (
                     <div className="mb-4 border border-slate-700 rounded-lg p-4 bg-slate-800">
                         <h3 className="font-medium mb-2 text-slate-100">AOI Upload</h3>
 
@@ -732,10 +1009,12 @@ export default function ToolWorkspace() {
                         )}
 
                         <p className="text-xs text-slate-400 mt-2">
-                            CSV should include latitude, longitude, and a vegetation response column.
+                            CSV must include latitude, longitude, and a vegetation response column. Coordinates must be in WGS84 decimal degrees (EPSG:4326), for example lat = 43.6123 and lon = -116.2019.
                         </p>
                     </div>
                 )}
+
+
 
                 {/* SETTINGS PANEL */}
 
@@ -973,8 +1252,8 @@ export default function ToolWorkspace() {
                 {/* MAP CANVAS */}
                 <div
                     className={`relative flex-1 min-h-[500px] rounded-xl border border-slate-700 overflow-hidden shadow-[0_0_60px_rgba(59,130,246,0.15)] ${selectedTool === "field-model" && workspaceTab === "details"
-                            ? "hidden"
-                            : "block"
+                        ? "hidden"
+                        : "block"
                         }`}
                 >
 
@@ -1112,6 +1391,9 @@ export default function ToolWorkspace() {
                                 <button
                                     onClick={async () => {
                                         try {
+                                            clearPredictionLayer();
+                                            setPredictionRunId(null);
+
                                             setRunning(true);
                                             setPredictionComplete(false);
                                             setLegendUrl(null);
@@ -1123,16 +1405,27 @@ export default function ToolWorkspace() {
                                                 method: "POST"
                                             });
 
+                                            if (!startRes.ok) {
+                                                throw new Error("Prediction process failed to start.");
+                                            }
+
                                             const startData = await startRes.json();
 
                                             if (startData.status !== "started") {
                                                 throw new Error("Prediction process failed to start.");
                                             }
 
+                                            const currentRunId = startData.run_id;
+                                            setPredictionRunId(currentRunId);
+
                                             const interval = setInterval(async () => {
                                                 try {
                                                     const res = await fetch("http://127.0.0.1:8000/prediction-progress");
                                                     const data = await res.json();
+
+                                                    if (data.run_id && data.run_id !== currentRunId) {
+                                                        return;
+                                                    }
 
                                                     const pct = Math.round((data.progress ?? 0) * 100);
                                                     setProgress(pct);
@@ -1147,6 +1440,12 @@ export default function ToolWorkspace() {
                                                         setStatus("Building COG for map display...");
                                                     } else if (data.status === "complete") {
                                                         setStatus("Prediction complete");
+                                                    } else if (data.status === "error") {
+                                                        clearInterval(interval);
+                                                        setRunning(false);
+                                                        setProgress(0);
+                                                        setStatus(data.message || "Prediction failed");
+                                                        return;
                                                     }
 
                                                     if (data.status === "complete") {
@@ -1157,7 +1456,7 @@ export default function ToolWorkspace() {
                                                         setProgress(100);
                                                         setStatus("Prediction raster complete");
                                                         setLegendAvailable(true);
-                                                        setLegendUrl(`http://127.0.0.1:8000/prediction-legend?ts=${Date.now()}`);
+                                                        setLegendUrl(`http://127.0.0.1:8000/prediction-legend?ts=${currentRunId}`);
 
                                                         await loadPredictionLayer();
                                                     }
@@ -1291,7 +1590,7 @@ export default function ToolWorkspace() {
                     )}
 
                 </div>
-                
+
 
                 {/* MODEL DETAILS PANEL */}
                 {selectedTool === "field-model" && workspaceTab === "details" && (
@@ -1315,7 +1614,7 @@ export default function ToolWorkspace() {
                                     <ul className="text-sm text-slate-300 space-y-2">
                                         <li><span className="text-slate-100 font-medium">AOI shapefile:</span> defines the prediction boundary.</li>
                                         <li><span className="text-slate-100 font-medium">Field CSV:</span> includes plot coordinates and a response variable.</li>
-                                        <li><span className="text-slate-100 font-medium">Latitude / longitude columns:</span> used to map field locations.</li>
+                                        <li><span className="text-slate-100 font-medium">Latitude / longitude columns:</span> must be WGS84 decimal degrees (EPSG:4326).</li>
                                         <li><span className="text-slate-100 font-medium">Response column:</span> the vegetation variable being modeled.</li>
                                     </ul>
                                 </div>

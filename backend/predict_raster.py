@@ -1,4 +1,6 @@
 import os
+import sys
+os.environ.setdefault("PROJ_NETWORK", "OFF")
 import json
 import subprocess
 import h2o
@@ -21,6 +23,8 @@ LEGEND_OUTPUT = "outputs/prediction_legend.png"
 METRICS_JSON = "outputs/model_metrics.json"
 PROGRESS_JSON = "outputs/prediction_progress.json"
 
+run_id = sys.argv[1] if len(sys.argv) > 1 else "unknown"
+
 os.makedirs("outputs", exist_ok=True)
 
 print("Starting prediction...")
@@ -41,7 +45,8 @@ with open(PROGRESS_JSON, "w") as f:
         "progress": 0.0,
         "tiles_done": 0,
         "tiles_total": 0,
-        "status": "starting"
+        "status": "starting",
+        "run_id": run_id
     }, f)
 
 # -----------------------------
@@ -140,7 +145,8 @@ with open(PROGRESS_JSON, "w") as f:
         "progress": 0.0,
         "tiles_done": 0,
         "tiles_total": total_tiles,
-        "status": "predicting"
+        "status": "predicting",
+        "run_id": run_id
     }, f)
 
 for y in range(0, rows, tile):
@@ -174,7 +180,8 @@ for y in range(0, rows, tile):
                 "progress": tile_counter / total_tiles,
                 "tiles_done": tile_counter,
                 "tiles_total": total_tiles,
-                "status": "predicting"
+                "status": "predicting",
+                "run_id": run_id
             }, f)
 
         print(f"Tile {tile_counter}/{total_tiles}")
@@ -201,7 +208,8 @@ with open(PROGRESS_JSON, "w") as f:
         "progress": 0.97,
         "tiles_done": tile_counter,
         "tiles_total": total_tiles,
-        "status": "writing_raster"
+        "status": "writing_raster",
+        "run_id": run_id
     }, f)
 
 with rasterio.open(OUTPUT, "w", **meta) as dst:
@@ -217,7 +225,8 @@ with open(PROGRESS_JSON, "w") as f:
         "progress": 0.99,
         "tiles_done": tile_counter,
         "tiles_total": total_tiles,
-        "status": "building_cog"
+        "status": "building_cog",
+        "run_id": run_id
     }, f)
 
 subprocess.run([
@@ -267,6 +276,7 @@ with open(PROGRESS_JSON, "w") as f:
         "tiles_done": tile_counter,
         "tiles_total": total_tiles,
         "status": "complete",
+        "run_id": run_id,
         "bounds": {
             "west": bounds_wgs84[0],
             "south": bounds_wgs84[1],
