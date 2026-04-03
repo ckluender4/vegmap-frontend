@@ -4,9 +4,12 @@ import json
 import subprocess
 import pandas as pd
 import geopandas as gpd
+from config import OUTPUT_DIR
 
-PROGRESS_JSON = "outputs/training_progress.json"
-METRICS_JSON = "outputs/model_metrics.json"
+PROGRESS_JSON = os.path.join(OUTPUT_DIR, "training_progress.json")
+METRICS_JSON = os.path.join(OUTPUT_DIR, "model_metrics.json")
+
+os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 aoi_path = sys.argv[1]
 csv_path = sys.argv[2]
@@ -94,7 +97,7 @@ try:
 
     training_points_geojson = json.loads(gdf.to_json())
 
-    with open("outputs/training_result.json", "w") as f:
+    with open(os.path.join(OUTPUT_DIR, "training_result.json"), "w") as f:
         json.dump({
             "status": "complete",
             "metrics": metrics,

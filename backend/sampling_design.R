@@ -5,16 +5,17 @@ rm(list = ls())
 # -----------------------------
 args <- commandArgs(trailingOnly = TRUE)
 
-if (length(args) < 3) {
-  stop("AOI path, max_samples, and min_spacing required")
+if (length(args) < 4) {
+  stop("AOI path, max_samples, min_spacing, and predictor stack path required")
 }
 
 aoi_path <- args[1]
 max_samples <- as.numeric(args[2])
 min_spacing <- as.numeric(args[3])
+pred_stack_path <- args[4]
 
-pred_stack_path <- "S:/Shared Storage/FIREss/GIS DATA REPOSITORY/NEW CARBON/STACKS/WEST_FullStack_5070_30m.tif"
-mask_polys_path <- "S:/Shared Storage/FIREss/GIS DATA REPOSITORY/NPS/CIRO/CIRO_TreeMask.shp"
+mask_polys_path <- if (length(args) >= 5 && nzchar(args[5])) args[5] else NA_character_
+
 
 grid_size <- 60 # cant do 30 bc then no SD
 #min_spacing <- 30   # meters
@@ -42,8 +43,15 @@ terraOptions(
 # INPUTS
 # -----------------------------
 aoi <- st_read(aoi_path, quiet = TRUE)
-mask_polys <- st_read(mask_polys_path, quiet = TRUE)
 pred <- rast(pred_stack_path)
+
+use_mask <- !is.na(mask_polys_path) && file.exists(mask_polys_path)
+
+if (use_mask) {
+  mask_polys <- st_read(mask_polys_path, quiet = TRUE)
+} else {
+  mask_polys <- NULL
+}
 
 keep_layers <- c(
   "Elevation",
@@ -60,8 +68,10 @@ print(crs(pred))
 cat("AOI CRS before transform:\n")
 print(st_crs(aoi))
 
-cat("Mask CRS before transform:\n")
-print(st_crs(mask_polys))
+if (use_mask) {
+  cat("Mask CRS before transform:\n")
+  print(st_crs(mask_polys))
+}
 
 # Reproject AOI to raster CRS
 if (st_crs(aoi)$wkt != crs(pred)) {
@@ -70,28 +80,31 @@ if (st_crs(aoi)$wkt != crs(pred)) {
 }
 
 # Reproject mask polygons to raster CRS
-if (st_crs(mask_polys)$wkt != crs(pred)) {
+if (use_mask && st_crs(mask_polys)$wkt != crs(pred)) {
   message("Reprojecting mask polygons to raster CRS...")
   mask_polys <- st_transform(mask_polys, crs(pred))
 }
-
 cat("AOI CRS after transform:\n")
 print(st_crs(aoi))
 
-cat("Mask CRS after transform:\n")
-print(st_crs(mask_polys))
+if (use_mask) {
+  cat("Mask CRS after transform:\n")
+  print(st_crs(mask_polys))
 
-mask_polys <- st_simplify(mask_polys, dTolerance = 30)
+  mask_polys <- st_simplify(mask_polys, dTolerance = 30)
+}
 
 
 # -----------------------------
 # CLEAN GEOMETRIES
 # -----------------------------
 aoi <- st_make_valid(aoi)
-mask_polys <- st_make_valid(mask_polys)
-
 aoi <- st_union(aoi) |> st_as_sf()
-mask_polys <- st_union(mask_polys) |> st_as_sf()
+
+if (use_mask) {
+  mask_polys <- st_make_valid(mask_polys)
+  mask_polys <- st_union(mask_polys) |> st_as_sf()
+}
 
 # -----------------------------
 # BUFFER AOI INWARD (50 m)
@@ -108,7 +121,10 @@ if (st_is_empty(aoi_inner)) {
 # KEEP AOI GEOMETRY INTACT
 # -----------------------------
 aoi_vect <- vect(aoi_inner)
-mask_vect <- vect(mask_polys)
+
+if (use_mask) {
+  mask_vect <- vect(mask_polys)
+}
 
 cat("Raster extent:\n")
 print(ext(pred))
@@ -126,8 +142,10 @@ pred <- crop(pred, aoi_vect)
 # Mask outside AOI
 pred <- mask(pred, aoi_vect)
 
-# Remove unwanted landcover directly from raster
-pred <- mask(pred, mask_vect, inverse = TRUE)
+# Remove unwanted landcover directly from raster if a mask was provided
+if (use_mask) {
+  pred <- mask(pred, mask_vect, inverse = TRUE)
+}
 
 # -----------------------------
 # REMOVE SMALL RASTER ISLANDS
@@ -439,8 +457,6 @@ cand_pts <- st_centroid(cand_cells)
 
 # ensure sf structure is preserved
 cand_pts <- st_as_sf(cand_pts)
-
-mask_plot <- st_intersection(mask_polys, aoi)
 
 cand_pts <- st_transform(cand_pts, 4326)
 

@@ -5,8 +5,7 @@ library(sf)
 
 terraOptions(
   memfrac = 0.8,
-  progress = 1,
-  tempdir = "D:/terra_tmp"
+  progress = 1
 )
 
 # -----------------------------
@@ -14,21 +13,18 @@ terraOptions(
 # -----------------------------
 args <- commandArgs(trailingOnly = TRUE)
 
-if (length(args) < 2) {
-  stop("Usage: Rscript run_eag_fronts.R <aoi_path> <out_raster_path>")
+if (length(args) < 6) {
+  stop("Usage: Rscript run_eag_fronts.R <aoi_path> <out_raster_path> <rap2021> <rap2023> <rap2024> <rap2025>")
 }
 
 aoi_path <- args[1]
 out_raster_path <- args[2]
 
-# -----------------------------
-# FIXED INPUT RASTERS
-# -----------------------------
 raster_files <- c(
-  "S:/Shared Storage/FIREss/GIS DATA REPOSITORY/RAP10m/2021/Aligned-Rasters/RAP10_IAG_21_5070_30m.tif",
-  "S:/Shared Storage/FIREss/GIS DATA REPOSITORY/RAP10m/2023/Aligned-Rasters/RAP10_IAG_23_FILLED_5070_30m.tif",
-  "S:/Shared Storage/FIREss/GIS DATA REPOSITORY/RAP10m/2024/Aligned-Rasters/RAP10_IAG_24_5070_30m.tif",
-  "S:/Shared Storage/FIREss/GIS DATA REPOSITORY/RAP10m/2025/Aligned-Rasters/RAP10_IAG_25_5070_30m.tif"
+  args[3],
+  args[4],
+  args[5],
+  args[6]
 )
 
 years <- c(2021, 2023, 2024, 2025)

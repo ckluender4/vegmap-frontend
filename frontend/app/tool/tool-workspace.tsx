@@ -19,6 +19,13 @@ import {
 } from "recharts";
 
 
+const API_BASE_URL =
+    process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8000";
+
+const apiUrl = (path: string) => `${API_BASE_URL}${path}`;
+const withQuery = (path: string, query: string) => `${API_BASE_URL}${path}${query}`;
+
+
 export default function ToolWorkspace() {
 
     const searchParams = useSearchParams();
@@ -180,7 +187,7 @@ export default function ToolWorkspace() {
             formData.append("y_column", convertYColumn);
             formData.append("response_column", convertResponseColumn || "");
 
-            const res = await fetch("http://127.0.0.1:8000/convert-input-data", {
+            const res = await fetch(apiUrl("/convert-input-data"), {
                 method: "POST",
                 body: formData,
             });
@@ -247,7 +254,7 @@ export default function ToolWorkspace() {
             formData.append("max_samples", String(maxSamples));
             formData.append("min_spacing", String(minSpacing));
 
-            const response = await fetch("http://127.0.0.1:8000/run-sampling", {
+            const response = await fetch(apiUrl("/run-sampling"), {
                 method: "POST",
                 body: formData,
             });
@@ -341,7 +348,7 @@ export default function ToolWorkspace() {
             formData.append("lon_column", lonColumn);
             formData.append("response_column", responseColumn);
 
-            const trainRes = await fetch("http://127.0.0.1:8000/train-field-model", {
+            const trainRes = await fetch(apiUrl("/train-field-model"), {
                 method: "POST",
                 body: formData,
             });
@@ -364,7 +371,7 @@ export default function ToolWorkspace() {
 
             const interval = setInterval(async () => {
                 try {
-                    const res = await fetch("http://127.0.0.1:8000/training-progress");
+                    const res = await fetch(apiUrl("/training-progress"));
                     const data = await res.json();
 
                     const pct = Math.round((data.progress ?? 0) * 100);
@@ -387,7 +394,7 @@ export default function ToolWorkspace() {
                     } else if (data.status === "complete") {
                         clearInterval(interval);
 
-                        const resultRes = await fetch("http://127.0.0.1:8000/training-result");
+                        const resultRes = await fetch(apiUrl("/training-result"));
                         const result = await resultRes.json();
 
                         if (result.training_points && map.current) {
@@ -451,7 +458,7 @@ export default function ToolWorkspace() {
         setEagComplete(false);
 
         try {
-            const response = await fetch("http://127.0.0.1:8000/run-eag-fronts", {
+            const response = await fetch(apiUrl("/run-eag-fronts"), {
                 method: "POST"
             });
 
@@ -481,7 +488,7 @@ export default function ToolWorkspace() {
             const formData = new FormData();
             formData.append("file", file);
 
-            const res = await fetch("http://127.0.0.1:8000/upload-aoi", {
+            const res = await fetch(apiUrl("/upload-aoi"), {
                 method: "POST",
                 body: formData
             });
@@ -600,7 +607,7 @@ export default function ToolWorkspace() {
     const loadPredictionLayer = async () => {
         if (!map.current) return;
 
-        const res = await fetch("http://127.0.0.1:8000/prediction-progress");
+        const res = await fetch(apiUrl("/prediction-progress"));
         const data = await res.json();
 
         if (!data.bounds) {
@@ -650,7 +657,7 @@ export default function ToolWorkspace() {
     const loadEagLayer = async () => {
         if (!map.current) return;
 
-        const res = await fetch("http://127.0.0.1:8000/eag-kernel-bounds");
+        const res = await fetch(apiUrl("/eag-kernel-bounds"));
         const data = await res.json();
 
         if (!data.bounds) {
@@ -701,7 +708,7 @@ export default function ToolWorkspace() {
         try {
             setCovariatesLoading(true);
 
-            const res = await fetch("http://127.0.0.1:8000/model-covariates");
+            const res = await fetch(apiUrl("/model-covariates"));
             const data = await res.json();
 
             setCovariates(data.covariates ?? []);
@@ -892,7 +899,7 @@ export default function ToolWorkspace() {
 
                                 <div className="flex flex-col gap-2">
                                     <a
-                                        href="http://127.0.0.1:8000/download-converted-5070"
+                                        href={apiUrl("/download-converted-5070")}
                                         target="_blank"
                                         rel="noreferrer"
                                         className="text-sm text-amber-300 hover:text-amber-200 underline"
@@ -901,7 +908,7 @@ export default function ToolWorkspace() {
                                     </a>
 
                                     <a
-                                        href="http://127.0.0.1:8000/download-converted-wgs84-csv"
+                                        href={apiUrl("/download-converted-wgs84-csv")}
                                         target="_blank"
                                         rel="noreferrer"
                                         className="text-sm text-amber-300 hover:text-amber-200 underline"
@@ -1150,7 +1157,7 @@ export default function ToolWorkspace() {
 
                 {samplingComplete && selectedTool === "sampling" && (
                     <button
-                        onClick={() => window.open("http://127.0.0.1:8000/download-sampling")}
+                        onClick={() => window.open(apiUrl("/download-sampling"))}
                         className="w-full py-3 rounded-lg font-medium transition shadow-sm mb-4 bg-green-700 hover:bg-green-800 text-white"
                     >
                         Export Sampling Points (.shp)
@@ -1159,7 +1166,7 @@ export default function ToolWorkspace() {
 
                 {eagComplete && selectedTool === "eag-fronts" && (
                     <button
-                        onClick={() => window.open("http://127.0.0.1:8000/download-eag-kernel")}
+                        onClick={() => window.open(apiUrl("/download-eag-kernel"))}
                         className="w-full py-3 rounded-lg font-medium transition shadow-sm mb-4 bg-green-700 hover:bg-green-800 text-white"
                     >
                         Export Kernel Raster (.tif)
@@ -1401,7 +1408,7 @@ export default function ToolWorkspace() {
                                             setStatus("Generating prediction raster...");
                                             setProgress(0);
 
-                                            const startRes = await fetch("http://127.0.0.1:8000/predict-raster", {
+                                            const startRes = await fetch(apiUrl("/predict-raster"), {
                                                 method: "POST"
                                             });
 
@@ -1420,7 +1427,7 @@ export default function ToolWorkspace() {
 
                                             const interval = setInterval(async () => {
                                                 try {
-                                                    const res = await fetch("http://127.0.0.1:8000/prediction-progress");
+                                                    const res = await fetch(apiUrl("/prediction-progress"));
                                                     const data = await res.json();
 
                                                     if (data.run_id && data.run_id !== currentRunId) {
@@ -1481,7 +1488,7 @@ export default function ToolWorkspace() {
 
                             {predictionComplete && (
                                 <button
-                                    onClick={() => window.open("http://127.0.0.1:8000/download-prediction")}
+                                    onClick={() => window.open(apiUrl("/download-prediction"))}
                                     className="w-full py-3 rounded-lg font-medium bg-green-700 hover:bg-green-800 text-white"
                                 >
                                     Download Prediction Raster

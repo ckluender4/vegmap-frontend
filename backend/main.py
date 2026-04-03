@@ -33,6 +33,19 @@ import tempfile
 import glob
 from fastapi.responses import FileResponse
 
+from config import (
+    STACK_PATH,
+    MASK_PATH,
+    RAP_2021_PATH,
+    RAP_2023_PATH,
+    RAP_2024_PATH,
+    RAP_2025_PATH,
+    UPLOAD_DIR,
+    OUTPUT_DIR,
+)
+
+RSCRIPT_PATH = r"C:/Program Files/R/R-4.4.1/bin/Rscript.exe"
+
 
 app = FastAPI()
 
@@ -89,7 +102,7 @@ from shapely.ops import transform as shp_transform
 
 @app.post("/upload-aoi")
 async def upload_aoi(file: UploadFile = File(...)):
-    upload_dir = "uploads"
+    upload_dir = UPLOAD_DIR
     os.makedirs(upload_dir, exist_ok=True)
 
     with tempfile.TemporaryDirectory() as tmp:
@@ -242,16 +255,23 @@ async def run_sampling(
     max_samples: int = Form(...),
     min_spacing: int = Form(...)
 ):
+    aoi_path = os.path.join(UPLOAD_DIR, "uploaded_aoi.shp")
+    sampling_output_path = "sampling_output.json"
+
+    if not os.path.exists(aoi_path):
+        raise HTTPException(status_code=400, detail="No uploaded AOI found. Please upload an AOI first.")
 
     subprocess.run([
-        r"C:/Program Files/R/R-4.4.1/bin/Rscript.exe",
+        RSCRIPT_PATH,
         "sampling_design.R",
-        "uploads/uploaded_aoi.shp",
+        aoi_path,
         str(max_samples),
-        str(min_spacing)
+        str(min_spacing),
+        STACK_PATH,
+        MASK_PATH if MASK_PATH and os.path.exists(MASK_PATH) else ""
     ], check=True)
 
-    with open("sampling_output.json") as f:
+    with open(sampling_output_path) as f:
         output = json.load(f)
 
     return output
@@ -331,7 +351,7 @@ def validate_wgs84_csv(csv_path: str, lat_column: str, lon_column: str):
             )
         )
     
-TRAIN_PROGRESS_JSON = "outputs/training_progress.json"
+TRAIN_PROGRESS_JSON = os.path.join(OUTPUT_DIR, "training_progress.json")
 
 @app.post("/train-field-model")
 async def train_field_model(
@@ -342,9 +362,9 @@ async def train_field_model(
 ):
     import sys
 
-    upload_dir = "uploads"
+    upload_dir = UPLOAD_DIR
     os.makedirs(upload_dir, exist_ok=True)
-    os.makedirs("outputs", exist_ok=True)
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
 
     csv_path = os.path.join(upload_dir, "training_points.csv")
 
@@ -354,7 +374,7 @@ async def train_field_model(
     # Validate coordinate columns before launching training
     validate_wgs84_csv(csv_path, lat_column, lon_column)
 
-    with open("outputs/training_progress.json", "w") as f:
+    with open(os.path.join(OUTPUT_DIR, "training_progress.json"), "w") as f:
         json.dump({
             "progress": 0.0,
             "status": "starting"
@@ -363,12 +383,11 @@ async def train_field_model(
     subprocess.Popen([
         sys.executable,
         "run_training_pipeline.py",
-        "uploads/uploaded_aoi.shp",
+        os.path.join(UPLOAD_DIR, "uploaded_aoi.shp"),
         csv_path,
         lat_column,
         lon_column,
-        response_column,
-        "EPSG:4326"
+        response_column
     ])
 
     return {
@@ -378,7 +397,7 @@ async def train_field_model(
 @app.get("/training-progress")
 def training_progress():
 
-    path = "outputs/training_progress.json"
+    path = os.path.join(OUTPUT_DIR, "training_progress.json")
 
     if not os.path.exists(path):
         return {
@@ -396,7 +415,7 @@ def training_progress():
 @app.get("/training-result")
 def training_result():
 
-    path = "outputs/training_result.json"
+    path = os.path.join(OUTPUT_DIR, "training_result.json")
 
     if not os.path.exists(path):
         return {"status": "not_ready"}
@@ -413,7 +432,7 @@ def predict_raster():
 
     run_id = str(int(time.time() * 1000))
 
-    with open("outputs/prediction_progress.json", "w") as f:
+    with open(os.path.join(OUTPUT_DIR, "prediction_progress.json"), "w") as f:
         json.dump({
             "progress": 0.0,
             "status": "starting",
@@ -437,7 +456,7 @@ from fastapi import HTTPException
 @app.get("/download-prediction")
 async def download_prediction():
 
-    path = "outputs/prediction_cog.tif"
+    path = os.path.join(OUTPUT_DIR, "prediction_cog.tif")
 
     if not os.path.exists(path):
         raise HTTPException(status_code=404, detail="Prediction raster not found.")
@@ -451,7 +470,7 @@ async def download_prediction():
 @app.get("/prediction-progress")
 def prediction_progress():
 
-    path = "outputs/prediction_progress.json"
+    path = os.path.join(OUTPUT_DIR, "prediction_progress.json")
 
     if not os.path.exists(path):
         return {
@@ -470,8 +489,8 @@ def prediction_progress():
 
 @app.get("/prediction-raster")
 def prediction_raster():
-    return FileResponse(
-        "outputs/prediction.tif",
+   return FileResponse(
+        os.path.join(OUTPUT_DIR, "prediction.tif"),
         media_type="image/tiff",
         filename="prediction.tif"
     )
@@ -484,8 +503,7 @@ import os
 
 @app.get("/prediction-legend")
 def prediction_legend():
-    base_dir = os.path.dirname(os.path.abspath(__file__))
-    legend_path = os.path.join(base_dir, "outputs", "prediction_legend.png")
+    legend_path = os.path.join(OUTPUT_DIR, "prediction_legend.png")
 
     if not os.path.exists(legend_path):
         raise HTTPException(
@@ -502,15 +520,15 @@ def prediction_legend():
 @app.get("/prediction-cog")
 def prediction_cog():
     return FileResponse(
-        "outputs/prediction_cog.tif",
+        os.path.join(OUTPUT_DIR, "prediction_cog.tif"),
         media_type="image/tiff",
         filename="prediction_cog.tif"
     )
 
 @app.get("/prediction-tile/{z}/{x}/{y}.png")
 def prediction_tile(z: int, x: int, y: int):
-    path = "outputs/prediction_cog.tif"
-    progress_path = "outputs/prediction_progress.json"
+    path = os.path.join(OUTPUT_DIR, "prediction_cog.tif")
+    progress_path = os.path.join(OUTPUT_DIR, "prediction_progress.json")
 
     if not os.path.exists(path):
         return Response(status_code=404)
@@ -575,7 +593,7 @@ def prediction_tile(z: int, x: int, y: int):
 @app.get("/model-covariates")
 def model_covariates():
 
-    metrics_path = "outputs/model_metrics.json"
+    metrics_path = os.path.join(OUTPUT_DIR, "model_metrics.json")
 
     if not os.path.exists(metrics_path):
         return {"covariates": []}
@@ -638,22 +656,24 @@ def model_covariates():
 
 @app.post("/run-eag-fronts")
 async def run_eag_fronts():
+    aoi_path = os.path.join(UPLOAD_DIR, "uploaded_aoi.shp")
+    output_raster = os.path.join(OUTPUT_DIR, "eag_kernel.tif")
 
-    aoi_path = "uploads/uploaded_aoi.shp"
-    output_dir = "outputs"
-    output_raster = os.path.join(output_dir, "eag_kernel.tif")
-
-    os.makedirs(output_dir, exist_ok=True)
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
 
     if not os.path.exists(aoi_path):
         raise HTTPException(status_code=400, detail="No uploaded AOI found. Please upload an AOI first.")
 
     try:
         result = subprocess.run([
-            r"C:/Program Files/R/R-4.4.1/bin/Rscript.exe",
+            RSCRIPT_PATH,
             "run_eag_fronts.R",
             aoi_path,
-            output_raster
+            output_raster,
+            RAP_2021_PATH,
+            RAP_2023_PATH,
+            RAP_2024_PATH,
+            RAP_2025_PATH
         ], check=True, capture_output=True, text=True)
 
     except subprocess.CalledProcessError as e:
@@ -674,7 +694,7 @@ async def run_eag_fronts():
     
 @app.get("/download-eag-kernel")
 async def download_eag_kernel():
-    path = "outputs/eag_kernel.tif"
+    path = os.path.join(OUTPUT_DIR, "eag_kernel.tif")
 
     if not os.path.exists(path):
         raise HTTPException(status_code=404, detail="EAG kernel raster not found.")
@@ -688,7 +708,7 @@ async def download_eag_kernel():
     
 @app.get("/eag-kernel-bounds")
 def eag_kernel_bounds():
-    path = "outputs/eag_kernel.tif"
+    path = os.path.join(OUTPUT_DIR, "eag_kernel.tif")
 
     if not os.path.exists(path):
         raise HTTPException(status_code=404, detail="EAG kernel raster not found.")
@@ -712,7 +732,7 @@ def eag_kernel_bounds():
     
 @app.get("/eag-kernel-tile/{z}/{x}/{y}.png")
 def eag_kernel_tile(z: int, x: int, y: int):
-    path = "outputs/eag_kernel.tif"
+    path = os.path.join(OUTPUT_DIR, "eag_kernel.tif")
 
     if not os.path.exists(path):
         return Response(status_code=404)
@@ -775,7 +795,7 @@ async def convert_input_data(
     import json
     import shutil
 
-    out_dir = os.path.join("outputs", "coordinate_prep")
+    out_dir = os.path.join(OUTPUT_DIR, "coordinate_prep")
     os.makedirs(out_dir, exist_ok=True)
 
     # clear old outputs
@@ -901,7 +921,7 @@ async def convert_input_data(
 
 @app.get("/download-converted-5070")
 async def download_converted_5070():
-    path = os.path.join("outputs", "coordinate_prep", "converted_5070.zip")
+    path = os.path.join(OUTPUT_DIR, "coordinate_prep", "converted_5070.zip")
     if not os.path.exists(path):
         raise HTTPException(status_code=404, detail="Converted 5070 shapefile not found.")
     return FileResponse(path, filename="converted_5070.zip", media_type="application/zip")
@@ -909,7 +929,7 @@ async def download_converted_5070():
 
 @app.get("/download-converted-wgs84-csv")
 async def download_converted_wgs84_csv():
-    path = os.path.join("outputs", "coordinate_prep", "converted_wgs84.csv")
+    path = os.path.join(OUTPUT_DIR, "coordinate_prep", "converted_wgs84.csv")
     if not os.path.exists(path):
         raise HTTPException(status_code=404, detail="Converted WGS84 CSV not found.")
     return FileResponse(path, filename="converted_wgs84.csv", media_type="text/csv")

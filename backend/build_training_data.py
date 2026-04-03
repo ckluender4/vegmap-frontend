@@ -3,13 +3,14 @@ import pandas as pd
 import rasterio
 import sys
 import os
+from config import STACK_PATH, OUTPUT_DIR
 
 aoi_path = sys.argv[1]
 csv_path = sys.argv[2]
 lat_col = sys.argv[3]
 lon_col = sys.argv[4]
 
-stack_path = "S:/Shared Storage/FIREss/GIS DATA REPOSITORY/NEW CARBON/STACKS/WEST_FullStack_5070_30m.tif"
+stack_path = STACK_PATH
 
 print("Loading AOI...")
 aoi = gpd.read_file(aoi_path)
@@ -97,7 +98,7 @@ if training.empty:
         "Training points were inside the AOI, but no valid raster predictor values were extracted."
     )
 
-os.makedirs("outputs", exist_ok=True)
-training.to_csv("outputs/training_table.csv", index=False)
-
-print(f"Training table saved to outputs/training_table.csv with {len(training)} rows")
+os.makedirs(OUTPUT_DIR, exist_ok=True)
+training_table_path = os.path.join(OUTPUT_DIR, "training_table.csv")
+training.to_csv(training_table_path, index=False)
+print(f"Training table saved to {training_table_path} with {len(training)} rows")

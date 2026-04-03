@@ -4,10 +4,11 @@ from h2o.automl import H2OAutoML
 import os
 import sys
 import json
+import shutil
 import rasterio
+from config import STACK_PATH, OUTPUT_DIR, MODEL_DIR
 
-STACK_PATH = "S:/Shared Storage/FIREss/GIS DATA REPOSITORY/NEW CARBON/STACKS/WEST_FullStack_5070_30m.tif"
-training_path = "outputs/training_table.csv"
+training_path = os.path.join(OUTPUT_DIR, "training_table.csv")
 response_column = sys.argv[1]
 
 TEST_MODE = False
@@ -35,10 +36,8 @@ if response_column not in df.columns:
 
 with rasterio.open(STACK_PATH) as src:
     raster_predictors = list(src.descriptions)
-
-# fallback if band descriptions missing
-if not raster_predictors or all(b is None for b in raster_predictors):
-    raster_predictors = [str(i + 1) for i in range(src.count)]
+    if not raster_predictors or all(b is None for b in raster_predictors):
+        raster_predictors = [str(i + 1) for i in range(src.count)]
 
 print("Raster predictors:")
 print(raster_predictors)
@@ -52,9 +51,6 @@ if TEST_MODE:
 if len(predictors) == 0:
     raise Exception("No valid predictors found matching raster stack.")
 
-if len(predictors) == 0:
-    raise Exception("No predictors found.")
-
 print("Final predictors used in model:")
 print(predictors)
 
@@ -64,7 +60,7 @@ df = df[cols_to_keep].dropna()
 if len(df) > MAX_ROWS:
     df = df.sample(MAX_ROWS, random_state=1)
     print(f"Sampling {MAX_ROWS} rows for fast training")
-    
+
 df = df.dropna(subset=[response_column])
 
 print("Initializing H2O...")
@@ -88,24 +84,20 @@ aml.train(
 
 leader = aml.leader
 
-os.makedirs("models", exist_ok=True)
-os.makedirs("outputs", exist_ok=True)
+os.makedirs(MODEL_DIR, exist_ok=True)
+os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 model_path = leader.download_mojo(
-    path="models",
+    path=MODEL_DIR,
     get_genmodel_jar=True
 )
 
-# rename to fixed file name
-import shutil
-fixed_model = "models/current_model.zip"
-
+fixed_model = os.path.join(MODEL_DIR, "current_model.zip")
 shutil.move(model_path, fixed_model)
-
 model_path = fixed_model
 
 leaderboard = aml.leaderboard.as_data_frame()
-leaderboard.to_csv("outputs/model_leaderboard.csv", index=False)
+leaderboard.to_csv(os.path.join(OUTPUT_DIR, "model_leaderboard.csv"), index=False)
 
 perf = leader.model_performance()
 
@@ -125,11 +117,11 @@ try:
 except Exception:
     metrics["var_importance"] = []
 
-with open("outputs/model_metrics.json", "w") as f:
+with open(os.path.join(OUTPUT_DIR, "model_metrics.json"), "w") as f:
     json.dump(metrics, f, indent=2)
 
-with open("outputs/predictor_names.json", "w") as f:
+with open(os.path.join(OUTPUT_DIR, "predictor_names.json"), "w") as f:
     json.dump({"predictors": predictors}, f, indent=2)
 
 print("Model metrics written.")
-print("Best model saved:", model_path)
+print("Best model saved:", model_path) 

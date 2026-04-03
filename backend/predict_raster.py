@@ -13,19 +13,20 @@ import matplotlib.pyplot as plt
 import matplotlib
 from matplotlib.colors import Normalize
 from rasterio.warp import transform_bounds
+from config import STACK_PATH, UPLOAD_DIR, OUTPUT_DIR
 
-STACK = "S:/Shared Storage/FIREss/GIS DATA REPOSITORY/NEW CARBON/STACKS/WEST_FullStack_5070_30m.tif"
-AOI = "uploads/uploaded_aoi.shp"
+STACK = STACK_PATH
+AOI = os.path.join(UPLOAD_DIR, "uploaded_aoi.shp")
 
-OUTPUT = "outputs/prediction.tif"
-COG_OUTPUT = "outputs/prediction_cog.tif"
-LEGEND_OUTPUT = "outputs/prediction_legend.png"
-METRICS_JSON = "outputs/model_metrics.json"
-PROGRESS_JSON = "outputs/prediction_progress.json"
+OUTPUT = os.path.join(OUTPUT_DIR, "prediction.tif")
+COG_OUTPUT = os.path.join(OUTPUT_DIR, "prediction_cog.tif")
+LEGEND_OUTPUT = os.path.join(OUTPUT_DIR, "prediction_legend.png")
+METRICS_JSON = os.path.join(OUTPUT_DIR, "model_metrics.json")
+PROGRESS_JSON = os.path.join(OUTPUT_DIR, "prediction_progress.json")
 
 run_id = sys.argv[1] if len(sys.argv) > 1 else "unknown"
 
-os.makedirs("outputs", exist_ok=True)
+os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 print("Starting prediction...")
 
@@ -213,7 +214,7 @@ with open(PROGRESS_JSON, "w") as f:
     }, f)
 
 with rasterio.open(OUTPUT, "w", **meta) as dst:
-    dst.write(prediction, 1)
+    dst.write(prediction_out, 1)
 
 print(f"Prediction raster written: {OUTPUT}")
 
