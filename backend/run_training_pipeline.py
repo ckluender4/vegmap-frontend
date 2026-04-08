@@ -2,14 +2,15 @@ import os
 import sys
 import json
 import subprocess
+from pathlib import Path
 import pandas as pd
 import geopandas as gpd
-from config import OUTPUT_DIR
+from config import BASE_DIR, OUTPUT_DIR
 
-PROGRESS_JSON = os.path.join(OUTPUT_DIR, "training_progress.json")
-METRICS_JSON = os.path.join(OUTPUT_DIR, "model_metrics.json")
+PROGRESS_JSON = OUTPUT_DIR / "training_progress.json"
+METRICS_JSON = OUTPUT_DIR / "model_metrics.json"
 
-os.makedirs(OUTPUT_DIR, exist_ok=True)
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 aoi_path = sys.argv[1]
 csv_path = sys.argv[2]
@@ -35,7 +36,7 @@ try:
 
     subprocess.run([
         sys.executable,
-        "build_training_data.py",
+        str(BASE_DIR / "build_training_data.py"),
         aoi_path,
         csv_path,
         lat_column,
@@ -46,7 +47,7 @@ try:
 
     subprocess.run([
         sys.executable,
-        "train_h2o_model.py",
+        str(BASE_DIR / "train_h2o_model.py"),
         response_column
     ], check=True)
 
@@ -97,7 +98,7 @@ try:
 
     training_points_geojson = json.loads(gdf.to_json())
 
-    with open(os.path.join(OUTPUT_DIR, "training_result.json"), "w") as f:
+    with open(OUTPUT_DIR / "training_result.json", "w") as f:
         json.dump({
             "status": "complete",
             "metrics": metrics,

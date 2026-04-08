@@ -32,10 +32,10 @@ years <- c(2021, 2023, 2024, 2025)
 # -----------------------------
 # THRESHOLD TUNING KNOBS
 # -----------------------------
-q_high_cover    <- 0.97
-q_change_tol    <- 0.85
+q_high_cover    <- 0.995
+q_change_tol    <- 0.90
 q_strong_change <- 0.97
-q_steady_tol    <- 0.60
+q_steady_tol    <- 0.30
 
 # -----------------------------
 # KERNEL SETTINGS

@@ -99,6 +99,6 @@ if training.empty:
     )
 
 os.makedirs(OUTPUT_DIR, exist_ok=True)
-training_table_path = os.path.join(OUTPUT_DIR, "training_table.csv")
+training_table_path = OUTPUT_DIR / "training_table.csv"
 training.to_csv(training_table_path, index=False)
 print(f"Training table saved to {training_table_path} with {len(training)} rows")

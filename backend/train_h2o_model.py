@@ -8,7 +8,7 @@ import shutil
 import rasterio
 from config import STACK_PATH, OUTPUT_DIR, MODEL_DIR
 
-training_path = os.path.join(OUTPUT_DIR, "training_table.csv")
+training_path = OUTPUT_DIR / "training_table.csv"
 response_column = sys.argv[1]
 
 TEST_MODE = False
@@ -88,16 +88,16 @@ os.makedirs(MODEL_DIR, exist_ok=True)
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 model_path = leader.download_mojo(
-    path=MODEL_DIR,
+    path=str(MODEL_DIR),
     get_genmodel_jar=True
 )
 
-fixed_model = os.path.join(MODEL_DIR, "current_model.zip")
-shutil.move(model_path, fixed_model)
-model_path = fixed_model
+fixed_model = MODEL_DIR / "current_model.zip"
+shutil.move(str(model_path), str(fixed_model))
+model_path = str(fixed_model)
 
 leaderboard = aml.leaderboard.as_data_frame()
-leaderboard.to_csv(os.path.join(OUTPUT_DIR, "model_leaderboard.csv"), index=False)
+leaderboard.to_csv(OUTPUT_DIR / "model_leaderboard.csv", index=False)
 
 perf = leader.model_performance()
 
@@ -117,10 +117,10 @@ try:
 except Exception:
     metrics["var_importance"] = []
 
-with open(os.path.join(OUTPUT_DIR, "model_metrics.json"), "w") as f:
+with open(OUTPUT_DIR / "model_metrics.json", "w") as f:
     json.dump(metrics, f, indent=2)
 
-with open(os.path.join(OUTPUT_DIR, "predictor_names.json"), "w") as f:
+with open(OUTPUT_DIR / "predictor_names.json", "w") as f:
     json.dump({"predictors": predictors}, f, indent=2)
 
 print("Model metrics written.")

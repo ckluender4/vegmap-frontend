@@ -13,7 +13,7 @@ import matplotlib.pyplot as plt
 import matplotlib
 from matplotlib.colors import Normalize
 from rasterio.warp import transform_bounds
-from config import STACK_PATH, UPLOAD_DIR, OUTPUT_DIR
+from config import STACK_PATH, UPLOAD_DIR, OUTPUT_DIR, GDAL_TRANSLATE_BIN
 
 STACK = STACK_PATH
 AOI = os.path.join(UPLOAD_DIR, "uploaded_aoi.shp")
@@ -231,9 +231,9 @@ with open(PROGRESS_JSON, "w") as f:
     }, f)
 
 subprocess.run([
-    "gdal_translate",
-    OUTPUT,
-    COG_OUTPUT,
+    GDAL_TRANSLATE_BIN,
+    str(OUTPUT),
+    str(COG_OUTPUT),
     "-of", "COG",
     "-co", "COMPRESS=LZW",
     "-co", "BLOCKSIZE=512",

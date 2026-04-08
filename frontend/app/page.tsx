@@ -39,9 +39,9 @@ export default function Home() {
         </h1>
 
         <p className="text-lg text-slate-600 max-w-3xl mb-8 leading-relaxed">
-          VegMap provides interactive tools for vegetation mapping,
-          environmental sampling design, and geospatial analysis —
-          built for scientists, researchers, and land managers.
+          VegMap provides interactive tools and custom mapping services for vegetation analysis,
+          environmental sampling design, and high-resolution geospatial workflows built for
+          scientists, researchers, and land managers.
         </p>
 
         <div className="flex flex-wrap gap-4">
@@ -68,12 +68,18 @@ export default function Home() {
               View Case Study
             </button>
           </Link>
+
+          <Link href="/uav-mapping">
+            <button className="border border-blue-200 bg-blue-50 text-blue-900 px-6 py-3 rounded-lg hover:bg-blue-100 transition shadow-sm">
+              Custom UAV Mapping
+            </button>
+          </Link>
         </div>
       </section>
 
       {/* TOOLS */}
       <section className="mx-auto w-full max-w-screen-2xl px-8 pb-24">
-        <h2 className="text-3xl font-bold mb-4">Analysis Tools</h2>
+        <h2 className="text-3xl font-bold mb-4">Tool and Services</h2>
 
         <p className="text-slate-600 max-w-3xl mb-10">
           VegMap integrates multiple spatial analysis tools within a unified
@@ -124,6 +130,23 @@ export default function Home() {
               modeling pipelines, and scientific analysis.
             </p>
           </div>
+
+          <div className="border border-blue-200 rounded-xl p-6 bg-blue-50/60 shadow-sm hover:shadow-md hover:-translate-y-1 transition">
+            <h3 className="font-semibold text-lg mb-2 text-blue-800">
+              Custom UAV + CNN Mapping
+            </h3>
+
+            <p className="text-slate-700 text-sm leading-relaxed mb-4">
+              Need ultra-high-resolution vegetation maps from UAV imagery? We offer
+              custom imagery collection, CNN U-Net mapping, and management-ready
+              spatial products for projects that go beyond the self-serve app.
+            </p>
+
+            <Link href="/uav-mapping" className="text-sm font-medium text-blue-700 hover:text-blue-800">
+              Learn more →
+            </Link>
+          </div>
+
         </div>
       </section>
 
@@ -267,6 +290,41 @@ export default function Home() {
                 Read the Case Study
               </button>
             </Link>
+          </div>
+        </div>
+      </section>
+
+      <section className="mx-auto w-full max-w-screen-2xl px-8 pb-28">
+        <div className="bg-gradient-to-br from-blue-950 to-slate-900 text-slate-100 rounded-2xl p-10 shadow-2xl border border-blue-900/40">
+          <div className="max-w-3xl">
+            <div className="text-sm font-semibold uppercase tracking-wide text-blue-300 mb-3">
+              Custom Service
+            </div>
+
+            <h2 className="text-3xl font-bold mb-4">
+              Need UAV imagery collection and ultra-high-resolution vegetation mapping?
+            </h2>
+
+            <p className="text-slate-300 text-lg leading-relaxed mb-8">
+              Some projects need more than a browser-based workflow. We provide
+              custom UAV imagery acquisition, targeted labeling, CNN U-Net
+              segmentation, and management-ready map products for restoration,
+              treatment planning, and post-fire monitoring.
+            </p>
+
+            <div className="flex flex-wrap gap-4">
+              <Link href="/uav-mapping">
+                <button className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition shadow-md">
+                  Explore the Service
+                </button>
+              </Link>
+
+              <Link href="/contact">
+                <button className="border border-slate-600 bg-transparent text-slate-100 px-6 py-3 rounded-lg hover:bg-slate-800 transition shadow-sm">
+                  Contact Us
+                </button>
+              </Link>
+            </div>
           </div>
         </div>
       </section>

@@ -17,7 +17,7 @@ pred_stack_path <- args[4]
 mask_polys_path <- if (length(args) >= 5 && nzchar(args[5])) args[5] else NA_character_
 
 
-grid_size <- 60 # cant do 30 bc then no SD
+grid_size <- 1000 # cant do 30 bc then no SD
 #min_spacing <- 30   # meters
 max_eval <- 1000
 
